@@ -187,8 +187,10 @@ typedef struct
     uint8_t  tcp_state;      /* 0 idle, 1 connecting, 2 open, 3 closed */
 } et_config_t;
 
-/* Set by the Ethernet ISR before any driver work -- defined in the board's interrupt file. */
-extern volatile uint32_t g_tx_cyc, g_rx_cyc, g_tx_evt, g_rx_evt;
+/* g_tx_cyc / g_rx_cyc / g_tx_evt / g_rx_evt are declared in board.h, next to
+ * the board whose interrupt file defines them.  They used to be declared here,
+ * which meant a second application sharing this board support had to include
+ * the instrument's wire protocol to see its own board's interrupt variables. */
 
 void     et_init(void);
 void     et_poll(void);

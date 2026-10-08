@@ -1,13 +1,19 @@
 # Copyright 2026 Colin O'Flynn
 # SPDX-License-Identifier: Apache-2.0
 #
-# Build every board in firmware/boards/, and keep doing so when one is added.
+# Build every board in firmware/boards/, in both applications, and keep doing so
+# when one is added.
 #
 # THE BOARD LIST IS DISCOVERED, NOT WRITTEN DOWN HERE. A new board is a
 # directory with a board.mk and a NEED_<board> line in tools/fetch_sdk.sh; this
 # workflow then builds it without being edited. A hard-coded matrix is the
 # version of this file that silently stops covering the newest board, which is
 # the one most likely to be broken.
+#
+# BOTH APPLICATIONS, because they share boards/<b>/ exactly. A change to a
+# board's clock tree, console or lwIP port can break one and not the other, and
+# the reference responder is the half that is easy to forget: nothing else in
+# the tree depends on it.
 name: firmware
 
 on:
@@ -39,13 +45,14 @@ jobs:
           echo "matrix=$json" >> "$GITHUB_OUTPUT"
 
   build:
-    name: ${{ matrix.board }}
+    name: ${{ matrix.board }} ${{ matrix.app }}
     needs: boards
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false       # one broken board must not hide the others
       matrix:
         board: ${{ fromJSON(needs.boards.outputs.matrix) }}
+        app: [instrument, victim]
     steps:
       - uses: actions/checkout@v4
 
@@ -54,20 +61,23 @@ jobs:
       # this still compile and link", not "is the binary byte-identical to
       # yesterday's". The version is printed so that a build whose SIZE moves
       # can be told from a build whose COMPILER moved.
+      #
+      # libnewlib-arm-none-eabi IS NOT OPTIONAL. Ubuntu ships the compiler and
+      # the C library separately, so gcc-arm-none-eabi alone gives a toolchain
+      # that cannot find string.h -- and -specs=nano.specs needs newlib-nano,
+      # which is in the same package.
       - name: install arm-none-eabi-gcc
-        # libnewlib-arm-none-eabi IS NOT OPTIONAL. Ubuntu ships the compiler and
-        # the C library separately, so gcc-arm-none-eabi alone gives a toolchain
-        # that cannot find string.h -- and -specs=nano.specs needs newlib-nano,
-        # which is in the same package.
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends               gcc-arm-none-eabi libnewlib-arm-none-eabi
+          sudo apt-get install -y --no-install-recommends \
+              gcc-arm-none-eabi libnewlib-arm-none-eabi
           arm-none-eabi-gcc --version | head -1
           arm-none-eabi-gcc -print-file-name=nano.specs
 
       # The ST sources are pinned by tag in tools/fetch_sdk.sh, so this is the
       # part that IS reproducible. Cached on the pin file's own hash: change a
-      # pin and the cache key changes with it.
+      # pin and the cache key changes with it. Shared between the two
+      # applications of one board, which need exactly the same components.
       - name: cache vendor tree
         uses: actions/cache@v4
         with:
@@ -78,19 +88,36 @@ jobs:
         run: tools/fetch_sdk.sh ${{ matrix.board }}
 
       - name: build
-        run: make -C firmware BOARD=${{ matrix.board }} -j"$(nproc)"
+        run: |
+          make -C firmware BOARD=${{ matrix.board }} APP=${{ matrix.app }} \
+               -j"$(nproc)"
+
+      # The two applications land in different trees under different names, so
+      # the paths are derived once here rather than written out per step.
+      - name: locate the output
+        id: out
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.app }}" = victim ]; then
+            echo "dir=firmware/Build/${{ matrix.board }}-victim" >> "$GITHUB_OUTPUT"
+            echo "name=ethtimer_victim" >> "$GITHUB_OUTPUT"
+          else
+            echo "dir=firmware/Build/${{ matrix.board }}" >> "$GITHUB_OUTPUT"
+            echo "name=ethtimer" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: report
         run: |
           set -euo pipefail
-          bin=firmware/Build/${{ matrix.board }}/ethtimer.bin
-          test -s "$bin" || { echo "$bin is empty or missing" >&2; exit 1; }
-          arm-none-eabi-size firmware/Build/${{ matrix.board }}/ethtimer.elf
+          d='${{ steps.out.outputs.dir }}'
+          n='${{ steps.out.outputs.name }}'
+          test -s "$d/$n.bin" || { echo "$d/$n.bin is empty or missing" >&2; exit 1; }
+          arm-none-eabi-size "$d/$n.elf"
           {
-            echo "### ${{ matrix.board }}"
+            echo "### ${{ matrix.board }} ${{ matrix.app }}"
             echo '```'
-            arm-none-eabi-size firmware/Build/${{ matrix.board }}/ethtimer.elf
-            echo "bin: $(stat -c%s "$bin") bytes"
+            arm-none-eabi-size "$d/$n.elf"
+            echo "bin: $(stat -c%s "$d/$n.bin") bytes"
             arm-none-eabi-gcc --version | head -1
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
@@ -100,16 +127,33 @@ jobs:
         # dependencies are wrong, and the symptom of THAT is a stale binary that
         # answers with limits you did not build. Cheap to check, so check it.
         run: |
-          out=$(make -C firmware BOARD=${{ matrix.board }} 2>&1)
+          out=$(make -C firmware BOARD=${{ matrix.board }} APP=${{ matrix.app }} 2>&1)
           echo "$out"
           echo "$out" | grep -q "Nothing to be done\|is up to date" \
             || { echo "second make did work; dependencies are wrong" >&2; exit 1; }
 
+      - name: clean is scoped to this build
+        # `make clean` removes this board-and-application's tree and nothing
+        # else. It used to remove Build/ entirely, so cleaning one board
+        # discarded five other binaries -- including any already flashed to a
+        # board, whose .elf is the only way to map an address afterwards.
+        run: |
+          set -euo pipefail
+          other=firmware/Build/sentinel
+          mkdir -p "$other" && touch "$other/keep"
+          make -C firmware BOARD=${{ matrix.board }} APP=${{ matrix.app }} clean
+          test -f "$other/keep" || { echo "clean removed another build" >&2; exit 1; }
+          test ! -d '${{ steps.out.outputs.dir }}' \
+            || { echo "clean left its own tree behind" >&2; exit 1; }
+          rm -rf "$other"
+          # Put it back for the upload below.
+          make -C firmware BOARD=${{ matrix.board }} APP=${{ matrix.app }} -j"$(nproc)"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: ethtimer-${{ matrix.board }}
+          name: ethtimer-${{ matrix.board }}-${{ matrix.app }}
           path: |
-            firmware/Build/${{ matrix.board }}/ethtimer.bin
-            firmware/Build/${{ matrix.board }}/ethtimer.elf
-            firmware/Build/${{ matrix.board }}/ethtimer.map
+            ${{ steps.out.outputs.dir }}/${{ steps.out.outputs.name }}.bin
+            ${{ steps.out.outputs.dir }}/${{ steps.out.outputs.name }}.elf
+            ${{ steps.out.outputs.dir }}/${{ steps.out.outputs.name }}.map
           if-no-files-found: error

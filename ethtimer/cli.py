@@ -44,6 +44,7 @@ _DEMOS = os.path.join(_ROOT, "demos")
 #: demo, and so a typo names the file it could not find.
 _BUILTIN = {
     "dns": os.path.join(_DEMOS, "dns", "dns_target.py"),
+    "jitter": os.path.join(_DEMOS, "jitter", "jitter_target.py"),
     "snmpv3": os.path.join(_DEMOS, "snmpv3", "snmpv3_target.py"),
     "snmpv3-harmony": os.path.join(_DEMOS, "snmpv3",
                                    "snmpv3_harmony_target.py"),

@@ -2,8 +2,9 @@
 #
 #   ../tools/fetch_sdk.sh f429    # once: pull the pinned ST sources
 #   make BOARD=f429               # -> Build/f429/ethtimer.bin
+#   make BOARD=f429 APP=victim    # -> Build/f429-victim/ethtimer_victim.bin
 #   make                          # -> Build/f746/ethtimer.bin  (default board)
-#   make list                     # the boards this tree knows
+#   make list                     # the boards and applications this tree knows
 #   make SDK=cube CUBE=/path/to/STM32CubeF4 BOARD=f429
 #
 # Everything under Build/ and vendor/ is generated or fetched; neither is in git.
@@ -69,13 +70,39 @@ AS     = $(CROSS)gcc -x assembler-with-cpp
 CP     = $(CROSS)objcopy
 SZ     = $(CROSS)size
 
-TARGET = ethtimer
-BUILD  = Build/$(BOARD)
+# TWO APPLICATIONS, ONE BOARD SUPPORT.
+#
+#   APP=instrument (default)  the thing that takes the measurement
+#   APP=victim                the reference responder it can be pointed at
+#
+# They share boards/<b>/ exactly -- same clock tree, console, lwIP port and
+# interrupt file -- and differ only in which application directory is compiled.
+# That is deliberate: a responder built on its own board support would be a
+# second thing that could be wrong, and the first question about any jitter
+# number is which end of the cable it came from.
+#
+# Separate build trees, for the same reason the boards have separate ones: two
+# applications' objects share basenames (main.o), and one tree would link one
+# application's main with the other's body.
+APP ?= instrument
+
+ifeq ($(APP),instrument)
+  TARGET  = ethtimer
+  BUILD   = Build/$(BOARD)
+  APP_SRC = src/main.c src/ethtimer.c
+  APP_INC = -Iinc
+else ifeq ($(APP),victim)
+  TARGET  = ethtimer_victim
+  BUILD   = Build/$(BOARD)-victim
+  APP_SRC = victim/src/main.c victim/src/victim.c
+  APP_INC = -Ivictim/inc
+else
+  $(error APP must be "instrument" or "victim", got "$(APP)")
+endif
 
 # ---------------------------------------------------------------- sources ---
 C_SRC = \
-  src/main.c \
-  src/ethtimer.c \
+  $(APP_SRC) \
   $(BDIR)/board.c \
   $(BDIR)/ethernetif.c \
   $(BDIR)/$(IT_SRC) \
@@ -92,7 +119,7 @@ C_SRC += $(wildcard $(LWIP)/src/core/*.c) \
 ASM_SRC = $(BDIR)/$(STARTUP)
 
 # --------------------------------------------------------------- includes ---
-INC = -Iinc -I$(BDIR) \
+INC = $(APP_INC) -I$(BDIR) \
       -I$(CORE_INC) -I$(DEV_INC) \
       -I$(HAL_INC) -I$(HAL_INC)/Legacy \
       -I$(LWIP)/src/include -I$(LWIP)/system -I$(LWIP)/system/arch \
@@ -159,12 +186,22 @@ list:
 	    printf "  %-6s %s\n" "$$b" \
 	      "$$(sed -n '1s/^# *//p' boards/$$b/board.mk)"; \
 	done
+	@echo
+	@echo "  APP=instrument (default)  the measuring end"
+	@echo "  APP=victim                the reference responder"
 
+# `clean` removes THIS board-and-application's tree only.  It used to remove
+# Build/ entirely, which meant cleaning one board silently discarded the other
+# five binaries -- including ones already flashed to a board and being measured,
+# whose .elf is the only way to map an address afterwards.
 clean:
+	rm -rf $(BUILD)
+
+clean-all:
 	rm -rf Build
 
 # The generated header dependencies. `-` because they do not exist on a clean
 # tree, and their absence is not an error -- the .o does not exist either.
 -include $(OBJ:.o=.d)
 
-.PHONY: all clean list
+.PHONY: all clean clean-all list

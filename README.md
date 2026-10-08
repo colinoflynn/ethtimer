@@ -36,11 +36,21 @@ python -m ethtimer.cli --target dns --n 20000 \
 The `dns` demo is the one to run first: the thing it measures is a resolver, and
 you already have one. See [`demos/dns/README.md`](demos/dns/README.md).
 
+With a second board you get [`demos/jitter`](demos/jitter), which is the one to
+run when the question is about the **network** rather than about a device:
+
+```bash
+make -C firmware BOARD=f429 APP=victim     # the reference responder
+# flash it to the other board, cable them together, then:
+python -m ethtimer.cli --target jitter --n 20000 --out direct.npz
+python demos/jitter/analyse.py direct.npz
+```
+
 ## Contents
 
 | | |
 |---|---|
-| [`firmware/`](firmware) | the instrument. `inc/ethtimer.h` is **the protocol, defined once**; `src/ethtimer.c` is framing, dispatch and the capture loop; `src/main.c` is about twenty lines; `boards/<b>/` is one board's clock tree, console, PHY, startup and linker script |
+| [`firmware/`](firmware) | **two applications, one board support.** `src/` is the instrument: `inc/ethtimer.h` is the protocol defined once, `src/ethtimer.c` is framing, dispatch and the capture loop, `src/main.c` is about twenty lines. [`victim/`](firmware/victim) is a reference responder that reports its own turnaround (`make APP=victim`). `boards/<b>/` is one board's clock tree, console, PHY, startup and linker script, shared by both |
 | [`ethtimer/`](ethtimer) | the host library. `proto.py`/`device.py` speak the wire protocol and know UDP, TCP and "bytes"; `target.py` is what an adapter must supply; `campaign.py` is everything that is the same for every protocol; `cli.py` is the command line; `aes.py` is the reference AES the acceptance check uses |
 | [`demos/`](demos) | protocol adapters: `dns`, `snmpv3`, `oscore`, `tls`. Each is a `Target` plus the protocol library it needs, and none of them is in the instrument's import path |
 | [`tests/`](tests) | **no hardware, no toolchain.** The protocol mirror test, the AES vectors, the OSCORE RFC vectors |
@@ -77,6 +87,24 @@ separately in `GET_INFO` rather than assumed by the host:
 
 A host therefore sizes its uploads from the board in front of it, not from a
 constant it was compiled with.
+
+### Two applications
+
+`APP=victim` builds a **reference responder** from the same board support: it
+answers a UDP request and reports its own receive-to-send interval in every
+reply, so a host can take its contribution off and be left with the path's.
+That is what [`demos/jitter`](demos/jitter) is for, and it is also the only
+target here against which a capture measures *the instrument* and nothing else
+— which makes it the thing to compare against after a new board, a new
+toolchain or a bumped SDK pin.
+
+```bash
+make -C firmware BOARD=f429 APP=victim   # -> Build/f429-victim/ethtimer_victim.bin
+```
+
+Sharing the board support is deliberate: a responder built on its own clock
+tree and lwIP port would be a second thing that could be wrong, and the first
+question about any jitter number is which end of the cable it came from.
 
 ### Flashing
 
@@ -152,6 +180,7 @@ edge runs one way only.
 | demo | transport | mode | what it needs at the other end |
 |---|---|---|---|
 | [`dns`](demos/dns) | UDP 53 | `bank` | **any resolver.** The zero-setup demo |
+| [`jitter`](demos/jitter) | UDP 7777 | `fixed` | a second board running `firmware/victim`. Measures the **path**, not an endpoint |
 | [`snmpv3`](demos/snmpv3) | UDP 161 | `fixed` | an SNMPv3 authPriv agent with known credentials |
 | [`oscore`](demos/oscore) | UDP 5683 | `bank` | an OSCORE server with a known master secret |
 | [`tls`](demos/tls) | TCP 443 | `relay` + `bank` | an HTTPS server speaking TLS 1.2 CBC |
@@ -221,6 +250,11 @@ tls      5000 exchanges, 0 timeouts, 0 short,            156/s, median  799.5 us
         E(K, P_i ^ C_(i-1)) == C_i on ALL 75000 pairs (15 per exchange)
 dns      5000 exchanges, 0 timeouts, 0 short, 0 bad dt, 485/s, median  213.2 us
         question section identical on all 5000 records; NOT CHECKED (no key)
+jitter  20000 exchanges, 0 timeouts, 0 short, 0 bad dt, 1156/s
+        round trip median 186.600 us sd 62.199;  responder's own 165.200 sd 62.235
+        PATH median  21.378 us sd  0.082  <- the responder's self-report took the
+        other 62 us of variation off, and two back-to-back runs agree on that
+        median to +0.000 us.  NOT CHECKED (no key)
 ```
 
 The `dns` row was taken with an F429 as the instrument against a host-side

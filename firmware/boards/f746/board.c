@@ -40,6 +40,70 @@ static void Console_Config(void);
  * ISR/TDR, F4 exposes SR/DR).  `src/` must not mention either part number.
  */
 
+
+/* THE CYCLE COUNTER IS ENABLED HERE, not in an application.
+ *
+ * `g_rx_cyc` and `g_tx_cyc` are latched by THIS board's Ethernet interrupt, so
+ * the counter they read has to be running before any application does
+ * anything -- and whether it is running must not depend on which application
+ * was linked. It used to: the instrument enabled it in its own init, and the
+ * reference responder, sharing this same board support, read zeroes and
+ * reported every interval as 0.000 us. Not an error, and not a number anyone
+ * would look at twice.
+ *
+ * Idempotent, so an application that also enables it is no worse off. */
+static uint8_t dwt_running;
+
+/* Enable the cycle counter AND CHECK THAT IT COUNTS, retrying if it does not.
+ *
+ * The check is not paranoia. Enabling the counter is three register writes and
+ * they can all appear to succeed while the counter stays dead: the DWT lives in
+ * the debug power domain, and on this family a write to DEMCR or DWT->CTRL that
+ * lands while that domain is not powered is dropped with no indication. Whether
+ * it is powered at the instant start-up code runs depends on what a debugger
+ * did last, so the failure is INTERMITTENT -- it survives one reset and not the
+ * next.
+ *
+ * Measured here: the reference responder reported its own interval as exactly
+ * 0.000 us on all 20 000 exchanges of one capture and correct values on the
+ * next, with the same binary. A dead counter does not read as an error. It
+ * reads as an endpoint that contributes nothing, which is a path figure with
+ * the whole round trip in it -- about 190 us where the truth was 21.
+ *
+ * So: write, then prove it by watching the counter move, and try again if it
+ * did not. `board_dwt_ok()` lets the application say so out loud instead of
+ * reporting a constant. */
+static void dwt_enable(void)
+{
+  int tries;
+
+  for (tries = 0; tries < 8; tries++)
+  {
+    uint32_t a;
+    volatile int spin;
+
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+#if BOARD_DWT_NEEDS_UNLOCK
+    /* The Cortex-M7's DWT is lock-protected; without this CYCCNT reads 0
+     * forever and every measurement silently becomes a constant. */
+    DWT->LAR = 0xC5ACCE55u;
+#endif
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+    /* Not DWT->CYCCNT = 0: zeroing it buys nothing -- every consumer takes a
+     * difference, and the 32-bit wrap has to be handled regardless. */
+    a = DWT->CYCCNT;
+    for (spin = 0; spin < 64; spin++) { }
+    if (DWT->CYCCNT != a) { dwt_running = 1u; return; }
+  }
+  dwt_running = 0u;
+}
+
+/* Non-zero if DWT->CYCCNT is counting.  An application that reports timing
+ * should check this once and say so if it is zero, because every interval it
+ * publishes afterwards would be zero and nothing else would mark them. */
+int board_dwt_ok(void) { return (int)dwt_running; }
+
 void board_init(void)
 {
   SCB_EnableICache();
@@ -47,6 +111,10 @@ void board_init(void)
   HAL_Init();
   SystemClock_Config();
   Console_Config();
+
+  /* AFTER the clock tree and the console, not before.  Every clock and
+   * power change is done by now, and a failure here can be printed. */
+  dwt_enable();
 
   lwip_init();
   Netif_Config();
@@ -91,6 +159,31 @@ void board_link_tick(void)
     last_link = now;
     ethernet_link_check_state(&gnetif);
     ethernetif_rmii_watchdog();
+    /* AND RE-ASSERT THE CYCLE COUNTER IF IT HAS STOPPED ADVANCING.
+     *
+     * The DWT is in the debug power domain, and the counter can freeze while
+     * every register still reads as though it were running. Measured here: the
+     * counter held 484 ms of uptime indefinitely with DWT->CTRL reading
+     * 0x40000001 -- CYCCNTENA set -- so the Ethernet ISR latched a constant and
+     * every interval computed from it came out as exactly zero.
+     *
+     * THE TEST IS WHETHER IT MOVED, not whether its enable bit is set. The
+     * first version of this checked CYCCNTENA and therefore never fired, which
+     * is the same mistake as trusting a status register over an observation.
+     *
+     * Exactly zero is the dangerous part: it is not an error, it is an endpoint
+     * that appears to contribute nothing, and a path figure then silently
+     * contains the whole round trip.
+     *
+     * 100 ms is millions of cycles at any clock this part runs, so an unchanged
+     * value means stopped. This function is already rate-limited to 10 Hz and
+     * already documented as never running inside a measured exchange. */
+    {
+      static uint32_t last_cyc;
+      uint32_t now_cyc = DWT->CYCCNT;
+      if (now_cyc == last_cyc) { dwt_enable(); now_cyc = DWT->CYCCNT; }
+      last_cyc = now_cyc;
+    }
   }
 }
 
