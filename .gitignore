@@ -1,0 +1,25 @@
+# Build and fetched sources
+firmware/Build/
+firmware/vendor/
+
+# Captures. A .npz is data, not source: it belongs beside the script that
+# produced it in whatever repository is doing the analysis, not in here.
+*.npz
+*.part
+*.partmeta.npz
+runs/
+
+# TLS demo: generated locally by make_certs.py, never reused across machines
+demos/tls/device_key.pem
+demos/tls/device_cert.pem
+*.keys
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/

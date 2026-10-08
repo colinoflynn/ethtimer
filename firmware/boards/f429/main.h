@@ -1,0 +1,53 @@
+/**
+  ******************************************************************************
+  * @file    main.h
+  * @brief   HAL and netif configuration for the NUCLEO-F429ZI board support.
+  ******************************************************************************
+  * Derived from STM32Cube's NUCLEO LwIP applications.
+  * Copyright (c) 2016 STMicroelectronics.
+  ******************************************************************************
+  */
+#ifndef __MAIN_H
+#define __MAIN_H
+
+#include "stm32f4xx_hal.h"
+
+/* The addresses the interface comes up with.  They are only a starting
+ * point: SET_NET re-addresses the interface at run time and the host always
+ * sends it, so one binary drives a device on any subnet. */
+#define IP_ADDR0   ((uint8_t)192U)
+#define IP_ADDR1   ((uint8_t)168U)
+#define IP_ADDR2   ((uint8_t)7U)
+#define IP_ADDR3   ((uint8_t)20U)
+
+#define NETMASK_ADDR0   ((uint8_t)255U)
+#define NETMASK_ADDR1   ((uint8_t)255U)
+#define NETMASK_ADDR2   ((uint8_t)255U)
+#define NETMASK_ADDR3   ((uint8_t)0U)
+
+#define GW_ADDR0   ((uint8_t)192U)
+#define GW_ADDR1   ((uint8_t)168U)
+#define GW_ADDR2   ((uint8_t)7U)
+#define GW_ADDR3   ((uint8_t)1U)
+
+#define VICTIM_IP0 ((uint8_t)192U)
+#define VICTIM_IP1 ((uint8_t)168U)
+#define VICTIM_IP2 ((uint8_t)7U)
+#define VICTIM_IP3 ((uint8_t)10U)
+
+/* MAC comes from stm32f7xx_hal_conf.h; override the last byte so the two
+   Nucleos do not share ST's default address on the same link. */
+#undef  ETH_MAC_ADDR5
+#define ETH_MAC_ADDR5   ((uint8_t)0x20)
+
+#ifndef CONSOLE_BAUD
+#define CONSOLE_BAUD 921600U
+#endif
+
+void uart_write(const uint8_t *p, uint32_t n);
+void uart_puts(const char *s);
+void uart_puthex32(uint32_t v);
+void uart_putdec(uint32_t v);
+int  uart_getchar_nb(void);
+
+#endif /* __MAIN_H */

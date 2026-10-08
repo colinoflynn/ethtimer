@@ -1,0 +1,78 @@
+# Copyright 2026 Colin O'Flynn
+# SPDX-License-Identifier: Apache-2.0
+#
+# The host-side tests: no hardware, no toolchain, no network.
+#
+# What they actually cover is narrower than "the host library works", and worth
+# naming so nobody reads a green tick as more than it is:
+#
+#   * tests/test_proto.py  -- the firmware header and the host's mirror of it
+#                             agree, exhaustively, in both directions.
+#   * tests/test_aes.py    -- the AES the acceptance check uses is AES.
+#   * tests/test_oscore_py.py -- the OSCORE client agrees with RFC 8613's own
+#                             vectors.
+#
+# Nothing here sends a byte to a board. A capture is checked by running one.
+name: host
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: pytest (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor stated in pyproject.toml, and a current one. Testing only
+        # the latest is how a repository claims >=3.9 for a year without it
+        # being true.
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: pytest
+        run: python -m pytest -q
+      - name: the CLI runs without a board
+        # --list and --ports touch no hardware. They are also the two paths a
+        # first-time user hits before anything is attached, so an exception
+        # there is the worst possible first impression.
+        run: |
+          python -m ethtimer.cli --list
+          python -m ethtimer.cli --ports
+          python -m ethtimer.cli --help > /dev/null
+      - name: every shipped adapter imports
+        # `--list` only checks that the FILE exists. Importing each one catches
+        # an adapter that was left half-renamed, which `--list` reports as
+        # present and the CLI then fails on at capture time.
+        run: |
+          python - <<'PY'
+          from ethtimer.cli import _BUILTIN, _load_module
+          from ethtimer import target
+          for name, path in sorted(_BUILTIN.items()):
+              _load_module(path)
+              cls = target.get(name)
+              inst = cls()
+              print("%-16s %-22s port=%-5s mode=%s"
+                    % (name, cls.__name__, inst.port, inst.mode))
+          PY
+
+  shellcheck:
+    name: shellcheck tools/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck tools/*.sh

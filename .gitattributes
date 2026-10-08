@@ -1,0 +1,12 @@
+# LF in the working tree too, not just in the repository.
+#
+# The firmware is built with GNU make under WSL or Linux, and `#!/bin/bash\r`
+# is not an interpreter: a CRLF checkout of tools/fetch_sdk.sh fails with
+# "bad interpreter", which reads as a missing shell rather than a line ending.
+* text=auto eol=lf
+
+# Keep binaries byte-exact.
+*.bin  binary
+*.elf  binary
+*.npz  binary
+*.png  binary

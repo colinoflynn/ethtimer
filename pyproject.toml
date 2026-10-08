@@ -1,0 +1,52 @@
+# Copyright 2026 Colin O'Flynn
+# SPDX-License-Identifier: Apache-2.0
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ethtimer"
+version = "2.0.0"
+description = "Cycle-accurate timing of Ethernet request/response exchanges, with a microcontroller as the instrument"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Colin O'Flynn" }]
+keywords = ["ethernet", "timing", "measurement", "stm32", "instrumentation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering",
+    "Topic :: System :: Hardware",
+]
+
+# numpy and pyserial are what taking a measurement needs, and nothing else is.
+# The acceptance check deliberately does NOT add a crypto dependency -- see
+# ethtimer/aes.py for why a capture that cannot be verified is worse than a
+# slow one.
+dependencies = ["numpy>=1.20", "pyserial>=3.5"]
+
+[project.optional-dependencies]
+# demos/tls/make_certs.py only. The TLS capture itself uses the standard
+# library's `ssl`.
+tls = ["cryptography>=3.4"]
+dev = ["pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/colinoflynn/ethtimer"
+Source = "https://github.com/colinoflynn/ethtimer"
+
+[project.scripts]
+ethtimer = "ethtimer.cli:main"
+
+[tool.setuptools]
+# The host library only. `demos/` is deliberately NOT packaged: an adapter is
+# loaded by path (`--module`) or found relative to the repository root, and the
+# protocol libraries beside it are example code, not an API. Packaging them
+# would make `import snmp3` mean something outside this tree.
+packages = ["ethtimer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
