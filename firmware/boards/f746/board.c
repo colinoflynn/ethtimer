@@ -104,7 +104,10 @@ static void dwt_enable(void)
  * publishes afterwards would be zero and nothing else would mark them. */
 int board_dwt_ok(void) { return (int)dwt_running; }
 
-void board_init(void)
+/* HAL, clock tree, console, cycle counter.  Split out of board_init() so
+ * that an application which drives the MAC itself can share this board's
+ * clock tree without pulling in a TCP/IP stack -- see board.h. */
+void board_clock_console_init(void)
 {
   SCB_EnableICache();
 
@@ -115,6 +118,11 @@ void board_init(void)
   /* AFTER the clock tree and the console, not before.  Every clock and
    * power change is done by now, and a failure here can be printed. */
   dwt_enable();
+}
+
+void board_init(void)
+{
+  board_clock_console_init();
 
   lwip_init();
   Netif_Config();
@@ -150,6 +158,44 @@ void board_tx_release(void)
 
 /* The link watchdog is separate from board_tick(): it costs a PHY register read
  * over MDIO, which is far too slow to sit inside a measured exchange. */
+
+/* RE-ENABLE THE CYCLE COUNTER IF IT HAS STOPPED ADVANCING.
+ *
+ * The DWT is in the debug power domain, and the counter can freeze while every
+ * register still reads as though it were running. Measured here: it held 484 ms
+ * of uptime indefinitely with DWT->CTRL reading 0x40000001 -- CYCCNTENA set --
+ * so the Ethernet ISR latched a constant and every interval computed from it
+ * came out as exactly zero.
+ *
+ * THE TEST IS WHETHER IT MOVED, not whether its enable bit is set. The first
+ * version of this checked CYCCNTENA and therefore never fired, which is the
+ * same mistake as trusting a status register over an observation.
+ *
+ * Exactly zero is the dangerous part: it is not an error, it is an endpoint
+ * that appears to contribute nothing, and a path figure then silently contains
+ * the whole round trip.
+ *
+ * CALL IT FROM SOMEWHERE THAT NEVER RUNS INSIDE A MEASURED EXCHANGE, at a few
+ * hertz. It is its own function rather than part of board_link_tick() because
+ * an application that drives the MAC itself does not call that one -- and the
+ * first such application spent an afternoon reporting zeroes for exactly this
+ * reason. Any interval shorter than a wrap works: 100 ms is millions of cycles
+ * at any clock this part runs, so an unchanged value means stopped.
+ *
+ * Cheap: one register read when all is well. */
+void board_dwt_tick(void)
+{
+  static uint32_t last_cyc;
+  uint32_t now_cyc = DWT->CYCCNT;
+
+  if (now_cyc == last_cyc)
+  {
+    dwt_enable();
+    now_cyc = DWT->CYCCNT;
+  }
+  last_cyc = now_cyc;
+}
+
 void board_link_tick(void)
 {
   static uint32_t last_link = 0;
@@ -159,31 +205,7 @@ void board_link_tick(void)
     last_link = now;
     ethernet_link_check_state(&gnetif);
     ethernetif_rmii_watchdog();
-    /* AND RE-ASSERT THE CYCLE COUNTER IF IT HAS STOPPED ADVANCING.
-     *
-     * The DWT is in the debug power domain, and the counter can freeze while
-     * every register still reads as though it were running. Measured here: the
-     * counter held 484 ms of uptime indefinitely with DWT->CTRL reading
-     * 0x40000001 -- CYCCNTENA set -- so the Ethernet ISR latched a constant and
-     * every interval computed from it came out as exactly zero.
-     *
-     * THE TEST IS WHETHER IT MOVED, not whether its enable bit is set. The
-     * first version of this checked CYCCNTENA and therefore never fired, which
-     * is the same mistake as trusting a status register over an observation.
-     *
-     * Exactly zero is the dangerous part: it is not an error, it is an endpoint
-     * that appears to contribute nothing, and a path figure then silently
-     * contains the whole round trip.
-     *
-     * 100 ms is millions of cycles at any clock this part runs, so an unchanged
-     * value means stopped. This function is already rate-limited to 10 Hz and
-     * already documented as never running inside a measured exchange. */
-    {
-      static uint32_t last_cyc;
-      uint32_t now_cyc = DWT->CYCCNT;
-      if (now_cyc == last_cyc) { dwt_enable(); now_cyc = DWT->CYCCNT; }
-      last_cyc = now_cyc;
-    }
+    board_dwt_tick();
   }
 }
 

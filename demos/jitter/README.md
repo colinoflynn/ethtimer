@@ -42,6 +42,38 @@ to back:
 
 So `--vs` can resolve a device that adds a hundred nanoseconds.
 
+## Two responders, and which to use
+
+There are two, with the same wire format, so the same `--target jitter` measures
+either and the difference between them is the firmware and nothing else:
+
+| | [`victim`](../../firmware/victim) (lwIP) | [`victim_raw`](../../firmware/victim_raw) (bare metal) |
+|---|---|---|
+| boards | every board | **f429 only** |
+| builds with | `APP=victim` | `APP=victim-raw` |
+| its own interval, median | 164.961 us | **1.972 us** |
+| its own interval, sd | 62.350 us | **0.023 us** |
+| **path median** | 21.506 us | **14.633 us** |
+| **path sd** | 0.060 us | **0.052 us** |
+| exchanges/s | 1 156 | **1 520** |
+
+Same two boards, same cable, same instrument, 20 000 exchanges of 64-byte frames,
+back to back.
+
+**Why the path median moved by 6.87 us is the interesting part**, because the
+lwIP responder already reported its 165 us and the host already subtracted it.
+An interval a responder can put in its own reply has to END before the frame
+leaves, so everything from "hand it to the driver" to "first bit on the wire" is
+outside it and lands in the path number as a constant. With lwIP that tail was a
+pbuf allocation, a copy, a route lookup and the HAL's descriptor bookkeeping --
+6.87 us of it. **Self-reporting removes what it can measure; it cannot remove
+what happens after it stops measuring.** Taking lwIP out removed it.
+
+So: use `victim-raw` on an F429 when the path number's last few microseconds
+matter, and `victim` everywhere else. The portable one is still a good
+instrument -- its *spread* is 0.060 us against the other's 0.052 -- it just
+carries a larger constant it cannot account for.
+
 That is the whole design argument, and the firmware's own comments make it at
 more length: a responder that is slow but honest beats one that is fast and
 assumed.
@@ -52,19 +84,22 @@ Flash one board with the responder and the other with the instrument:
 
 ```bash
 tools/fetch_sdk.sh f429
-make -C firmware BOARD=f429 APP=victim      # -> Build/f429-victim/ethtimer_victim.bin
-make -C firmware BOARD=f429                 # -> Build/f429/ethtimer.bin
+make -C firmware BOARD=f429 APP=victim-raw  # the bare-metal responder, f429 only
+make -C firmware BOARD=f429                 # the instrument
 ```
+
+`APP=victim` builds the portable responder instead; see *Two responders* below
+for which to use.
 
 The responder comes up at **192.168.7.10** and the instrument defaults to
 **192.168.7.20**, so a direct cable needs no arguments beyond the port. Its
 console prints what it is and then stays quiet:
 
 ```
-NUCLEO-F429ZI ethtimer reference responder v1  UDP port 7777
-  cycle counter 180 MHz
+NUCLEO-F429ZI ethtimer reference responder v1 (bare metal, no lwIP)
+  UDP port 7777, cycle counter 180 MHz
   address 192.168.7.10
-  no reply is sent until a request arrives; nothing is printed while measuring
+  the reply is built in the receive interrupt; this loop only watches the link
 victim: link 100F
 ```
 

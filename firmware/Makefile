@@ -70,20 +70,33 @@ AS     = $(CROSS)gcc -x assembler-with-cpp
 CP     = $(CROSS)objcopy
 SZ     = $(CROSS)size
 
-# TWO APPLICATIONS, ONE BOARD SUPPORT.
+# THREE APPLICATIONS, ONE BOARD SUPPORT.
 #
 #   APP=instrument (default)  the thing that takes the measurement
-#   APP=victim                the reference responder it can be pointed at
+#   APP=victim                the reference responder, on lwIP, every board
+#   APP=victim-raw            the same responder with no TCP/IP stack, f429 only
 #
-# They share boards/<b>/ exactly -- same clock tree, console, lwIP port and
-# interrupt file -- and differ only in which application directory is compiled.
-# That is deliberate: a responder built on its own board support would be a
-# second thing that could be wrong, and the first question about any jitter
-# number is which end of the cable it came from.
+# All three share boards/<b>/ -- same clock tree, console and interrupt file --
+# and differ in which application directory is compiled. That is deliberate: a
+# responder built on its own board support would be a second thing that could be
+# wrong, and the first question about any jitter number is which end of the cable
+# it came from.
 #
-# Separate build trees, for the same reason the boards have separate ones: two
+# victim-raw additionally omits lwIP and the lwIP port. The lwIP half of board.c
+# is still compiled and is dropped by --gc-sections, because nothing in that
+# application references it; what it does use is board_clock_console_init(),
+# which exists so this responder shares the instrument's clock tree rather than
+# carrying a copy of it.
+#
+# WHY victim-raw IS ONE BOARD. It drives the Ethernet DMA descriptors and the
+# DMASR/DMATPDR registers directly, and the H7's DMA is a different generation
+# with a different descriptor format and a per-channel status register. A
+# board-generic version of it would be a board-generic version of the thing it
+# exists to avoid. APP=victim is the portable responder.
+#
+# Separate build trees, for the same reason the boards have separate ones: the
 # applications' objects share basenames (main.o), and one tree would link one
-# application's main with the other's body.
+# application's main with another's body.
 APP ?= instrument
 
 ifeq ($(APP),instrument)
@@ -91,34 +104,54 @@ ifeq ($(APP),instrument)
   BUILD   = Build/$(BOARD)
   APP_SRC = src/main.c src/ethtimer.c
   APP_INC = -Iinc
+  APP_LWIP = yes
 else ifeq ($(APP),victim)
   TARGET  = ethtimer_victim
   BUILD   = Build/$(BOARD)-victim
   APP_SRC = victim/src/main.c victim/src/victim.c
   APP_INC = -Ivictim/inc
+  APP_LWIP = yes
+else ifeq ($(APP),victim-raw)
+  TARGET  = ethtimer_victim_raw
+  BUILD   = Build/$(BOARD)-victim-raw
+  APP_SRC = victim_raw/src/main.c victim_raw/src/rawnet.c
+  # The WIRE format is victim/inc's, shared unchanged, so that one host adapter
+  # measures either responder and the two are comparable.
+  APP_INC = -Ivictim_raw/inc -Ivictim/inc
+  APP_LWIP = no
+  ifneq ($(BOARD),f429)
+    $(error APP=victim-raw is f429 only -- it drives the F4 Ethernet DMA \
+descriptors directly. Use APP=victim for other boards.)
+  endif
 else
-  $(error APP must be "instrument" or "victim", got "$(APP)")
+  $(error APP must be "instrument", "victim" or "victim-raw", got "$(APP)")
 endif
 
 # ---------------------------------------------------------------- sources ---
 C_SRC = \
   $(APP_SRC) \
   $(BDIR)/board.c \
-  $(BDIR)/ethernetif.c \
   $(BDIR)/$(IT_SRC) \
   $(BDIR)/$(SYSTEM_SRC) \
   $(LAN)/lan8742.c
 
 C_SRC += $(foreach m,$(HAL_MODULES),$(HAL_SRC)/$(HAL_PREFIX)_$(m).c)
 
-# lwIP: core + IPv4 + netif, the CubeMX NO_SYS selection
-C_SRC += $(wildcard $(LWIP)/src/core/*.c) \
-         $(wildcard $(LWIP)/src/core/ipv4/*.c) \
-         $(LWIP)/src/netif/ethernet.c
+ifeq ($(APP_LWIP),yes)
+  # The lwIP port, and lwIP: core + IPv4 + netif, the CubeMX NO_SYS selection.
+  C_SRC += $(BDIR)/ethernetif.c
+  C_SRC += $(wildcard $(LWIP)/src/core/*.c) \
+           $(wildcard $(LWIP)/src/core/ipv4/*.c) \
+           $(LWIP)/src/netif/ethernet.c
+endif
 
 ASM_SRC = $(BDIR)/$(STARTUP)
 
 # --------------------------------------------------------------- includes ---
+# lwIP's headers are on the path even for an application that does not LINK it:
+# board.c includes them, and its lwIP-using functions are compiled and then
+# dropped by --gc-sections rather than being #ifdef'd out of existence. One
+# board.c with one clock tree, not two that can drift apart.
 INC = $(APP_INC) -I$(BDIR) \
       -I$(CORE_INC) -I$(DEV_INC) \
       -I$(HAL_INC) -I$(HAL_INC)/Legacy \

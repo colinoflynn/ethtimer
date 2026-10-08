@@ -22,6 +22,7 @@
 #include "stm32f7xx_it.h"
 volatile uint32_t g_rx_cyc, g_tx_cyc, g_rx_evt, g_tx_evt;
 #include "main.h"
+#include "board.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/
@@ -127,6 +128,15 @@ void SysTick_Handler(void)
   * @param  None
   * @retval None
   */
+
+/* Default: let the HAL have the interrupt.  Overridden by an application that
+   builds its reply in here. */
+__weak int board_eth_isr_hook(uint32_t cyc, uint32_t dmasr)
+{
+  (void)cyc; (void)dmasr;
+  return 0;
+}
+
 void ETH_IRQHandler(void)
 {
   /* Latch the cycle counter BEFORE any driver work: this is the instrument's
@@ -135,6 +145,11 @@ void ETH_IRQHandler(void)
   uint32_t sr = ETH->DMASR;
   if (sr & ETH_DMASR_RS) { g_rx_cyc = t; g_rx_evt++; }
   if (sr & ETH_DMASR_TS) { g_tx_cyc = t; g_tx_evt++; }
+  /* An application that handles the frame itself says so by returning
+     non-zero, and has then already cleared the status bits it consumed.  Weak
+     and zero by default, so the HAL path is unchanged for the instrument. */
+  if (board_eth_isr_hook(t, sr)) { return; }
+
   HAL_ETH_IRQHandler(&EthHandle);
 }
 

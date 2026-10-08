@@ -11,6 +11,12 @@ discovers the board list from this directory.
 | [`f746`](f746) | NUCLEO-F746ZG, Cortex-M7 at 216 MHz | run as the instrument |
 | [`h723`](h723) | NUCLEO-H723ZG, Cortex-M7 at 400 MHz | brought up; no capture yet — [why](h723/README.md) |
 
+Three applications build against these: the instrument (`APP=instrument`), the
+portable reference responder (`APP=victim`), and a bare-metal one
+(`APP=victim-raw`) that is **f429 only**, because it drives the F4 Ethernet DMA's
+descriptors directly and the H7's are a different generation. See
+[`../victim_raw/README.md`](../victim_raw/README.md).
+
 ## What a board directory holds
 
 | file | |
@@ -28,6 +34,33 @@ discovers the board list from this directory.
 
 Most of these are STMicroelectronics CubeMX output and keep their own copyright
 notices — see [`../../NOTICE`](../../NOTICE).
+
+## Two hooks an application can use
+
+Both are in `board.h`, both are no-ops for the instrument, and both exist
+because a second application on this board support needed them.
+
+* **`board_clock_console_init()`** -- the half of `board_init()` that does not
+  need a TCP/IP stack. An application that drives the MAC itself calls this, and
+  the lwIP half of `board.c` is dropped by `--gc-sections`. It exists so such an
+  application shares THIS clock tree rather than carrying a copy: a reference
+  responder whose clock came from somewhere else would be measuring a different
+  board.
+* **`board_eth_isr_hook(cyc, dmasr)`** -- called from `ETH_IRQHandler` with the
+  cycle counter already latched and the DMA status already read, before any
+  driver work. Return non-zero to say the interrupt is fully handled; the caller
+  then skips `HAL_ETH_IRQHandler` and the hook owns clearing the status bits it
+  consumed. Weak and returning zero by default, so an application that wants the
+  HAL's receive path gets exactly what it got before the hook existed.
+
+And one an application must remember:
+
+* **`board_dwt_tick()`** -- re-enables the cycle counter if it has stopped
+  advancing. `board_link_tick()` calls it, so the instrument and the lwIP
+  responder get it for free; an application that does not call
+  `board_link_tick()` **must call this itself**, at a few hertz, from somewhere
+  that never runs inside a measured exchange. The first application that did not
+  reported an interval of exactly zero for an afternoon.
 
 ## The procedure
 

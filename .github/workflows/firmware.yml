@@ -44,6 +44,60 @@ jobs:
           json=$(echo "$boards" | jq -R . | jq -cs .)
           echo "matrix=$json" >> "$GITHUB_OUTPUT"
 
+  # victim-raw is one board, so it gets its own job rather than a matrix
+  # exclusion -- the board list is discovered at run time, and an exclusion
+  # against a dynamic matrix is a thing nobody can read.
+  build-raw:
+    name: f429 victim-raw
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install arm-none-eabi-gcc
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+              gcc-arm-none-eabi libnewlib-arm-none-eabi
+          arm-none-eabi-gcc --version | head -1
+      - name: cache vendor tree
+        uses: actions/cache@v4
+        with:
+          path: firmware/vendor
+          key: vendor-f429-${{ hashFiles('tools/fetch_sdk.sh') }}
+      - name: fetch SDK
+        run: tools/fetch_sdk.sh f429
+      - name: build
+        run: make -C firmware BOARD=f429 APP=victim-raw -j"$(nproc)"
+      - name: it contains no lwIP
+        # The point of this application is that lwIP is not in it. A build that
+        # quietly started linking lwIP again would still work and would still be
+        # fast enough to look right, so the absence is checked rather than
+        # assumed.
+        run: |
+          set -euo pipefail
+          elf=firmware/Build/f429-victim-raw/ethtimer_victim_raw.elf
+          arm-none-eabi-size "$elf"
+          n=$(arm-none-eabi-nm "$elf" | grep -cE ' (t|T|b|B|d|D) (lwip_|udp_|tcp_|pbuf_|netif_|etharp_|ip4_|memp_)' || true)
+          echo "lwIP symbols: $n"
+          test "$n" -eq 0 || { echo "lwIP got linked in" >&2; exit 1; }
+      - name: it refuses another board
+        # The refusal has to name the alternative: "it does not build for the H7"
+        # is only useful next to "use APP=victim".
+        run: |
+          set -euo pipefail
+          if make -C firmware BOARD=h723 APP=victim-raw >out.txt 2>&1; then
+            echo "expected a refusal for BOARD=h723" >&2; exit 1
+          fi
+          cat out.txt
+          grep -q "f429 only" out.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ethtimer-f429-victim-raw
+          path: |
+            firmware/Build/f429-victim-raw/ethtimer_victim_raw.bin
+            firmware/Build/f429-victim-raw/ethtimer_victim_raw.elf
+            firmware/Build/f429-victim-raw/ethtimer_victim_raw.map
+          if-no-files-found: error
+
   build:
     name: ${{ matrix.board }} ${{ matrix.app }}
     needs: boards

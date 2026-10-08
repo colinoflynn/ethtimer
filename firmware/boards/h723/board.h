@@ -24,6 +24,29 @@ extern struct netif gnetif;
  * what this board's Ethernet interrupt latches, so whether it runs cannot
  * be left to an application to remember. */
 void board_init(void);
+
+/* The half of board_init() that does not need a TCP/IP stack: HAL, clock tree,
+ * console, cycle counter.  An application that drives the Ethernet MAC itself
+ * calls this instead of board_init(), and the lwIP half of this file is then
+ * dropped by --gc-sections because nothing references it.
+ *
+ * It exists so that such an application shares THIS clock tree rather than
+ * carrying a copy. A reference responder whose clock came from somewhere else
+ * would be measuring a different board. */
+void board_clock_console_init(void);
+
+/* Called from ETH_IRQHandler with the cycle counter already latched and the DMA
+ * status already read, BEFORE any driver work. Return non-zero to say the
+ * interrupt is fully handled -- the caller then skips HAL_ETH_IRQHandler, and
+ * the hook is responsible for clearing the DMA status bits it consumed.
+ *
+ * Weak and returning zero by default, so an application that wants the HAL's
+ * receive path gets exactly what it got before this existed. It is here for the
+ * opposite case: a responder that builds its reply in the interrupt, from a
+ * pre-armed descriptor, with no stack between the frame arriving and the frame
+ * leaving. `cyc` is the same latch that goes into g_rx_cyc, so a reply can
+ * report an interval that starts before any software ran. */
+int board_eth_isr_hook(uint32_t cyc, uint32_t dmasr);
 void board_tick(void);
 /* Drain completed Tx descriptors; called on the TCP path only. */
 void board_tx_release(void);
@@ -44,6 +67,11 @@ uint32_t board_cyccnt_hz(void);
  * is down -- and a dead counter reports every interval as zero, which is
  * not an error anyone notices. */
 int board_dwt_ok(void);
+/* Re-enable the cycle counter if it has stopped advancing since the last call.
+ * Call it from somewhere that never runs inside a measured exchange, at a few
+ * hertz; board_link_tick() already does, and an application that does not call
+ * board_link_tick() must call this itself. One register read when all is well. */
+void board_dwt_tick(void);
 
 /* Provided by board.c, inherited unchanged from the CubeMX console wiring. */
 void uart_write(const uint8_t *p, uint32_t n);
