@@ -1,5 +1,8 @@
 # Adding a board
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 A board is a directory here plus one line in `tools/fetch_sdk.sh`. Nothing in
 [`../src/`](../src) mentions a part number, and nothing has to be edited to make
 CI build the new one — [`firmware.yml`](../../.github/workflows/firmware.yml)

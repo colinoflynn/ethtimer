@@ -1,5 +1,8 @@
 # `snmpv3` — timing an authPriv GET
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 Sends the same SNMPv3 authPriv `GET sysDescr.0` over and over, times each
 turnaround, and keeps two blocks of the encrypted scopedPDU out of each reply.
 

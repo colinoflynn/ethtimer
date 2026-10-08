@@ -1,5 +1,8 @@
 # Demos
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 Each directory is a **protocol adapter** — a subclass of
 [`ethtimer.target.Target`](../ethtimer/target.py) — plus whatever protocol code
 it needs to build a request and read a reply.

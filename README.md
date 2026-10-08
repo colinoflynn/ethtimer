@@ -1,5 +1,8 @@
 # ethtimer
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 **A general-purpose instrument for timing Ethernet request/response exchanges,
 to the cycle.**
 

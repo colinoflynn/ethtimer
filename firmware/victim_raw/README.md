@@ -1,5 +1,8 @@
 # `victim_raw` — the reference responder with no TCP/IP stack
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 ```bash
 tools/fetch_sdk.sh f429
 make -C firmware BOARD=f429 APP=victim-raw

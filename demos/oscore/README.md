@@ -1,5 +1,8 @@
 # `oscore` — timing a protected CoAP exchange
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 Sends OSCORE-protected CoAP `GET` requests, each with a fresh Partial IV, times
 each turnaround, and keeps one 16-byte block of the protected response.
 

@@ -1,5 +1,8 @@
 # `dns` — the demo with nothing to set up
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 Measures how long a resolver takes to answer a query, over 20 000 queries,
 counted in the instrument's own clock cycles.
 

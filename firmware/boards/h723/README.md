@@ -1,5 +1,8 @@
 # NUCLEO-H723ZG
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 `make BOARD=h723` — Cortex-M7 at **400 MHz**, LAN8742 PHY, console on USART3,
 128 KB record ring, 64 KB / 2 048-entry request bank.
 

@@ -1,5 +1,8 @@
 # `password` — recovering a secret from an early-returning comparison
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 A device compares a password guess against its secret one byte at a time and
 returns at the first byte that differs. It answers with one bit: right or wrong.
 

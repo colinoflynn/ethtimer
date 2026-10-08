@@ -1,5 +1,8 @@
 # `jitter` — measuring the path, not the endpoints
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 Two boards, a cable, and whatever you put between them. One board runs the
 instrument; the other runs [`firmware/victim`](../../firmware/victim), a
 reference responder that answers a UDP request and **reports its own

@@ -1,5 +1,8 @@
 # `tls` — timing an HTTPS request over a held-open connection
 
+*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
+for that real-life touch and typos.*
+
 Opens one TLS 1.2 session, then sends HTTP `GET` requests inside it, times each
 turnaround, and keeps the explicit IV plus fifteen ciphertext blocks of each
 response record.
