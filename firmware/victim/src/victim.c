@@ -45,6 +45,7 @@
 
 #include "board.h"
 #include "et_victim.h"
+#include "pwcheck.h"
 #include "lwip/udp.h"
 #include "lwip/pbuf.h"
 #include "lwip/ip_addr.h"
@@ -92,6 +93,7 @@ static uint32_t g_seen;       /* frames delivered to this port, valid or not    
 static uint32_t g_bad_magic;
 static uint32_t g_bad_ver;
 static uint32_t g_short;      /* frames too short to be a request at all        */
+static uint32_t g_pw;         /* password checks actually run                   */
 
 /* Set by a ETV_CMD_STATUS request, consumed by etv_poll().  A flag rather than
  * a print: printing from the receive callback would put a UART transmit inside
@@ -140,10 +142,13 @@ static void rsp_template(void)
 static void on_udp(void *arg, struct udp_pcb *pcb, struct pbuf *p,
                    const ip_addr_t *addr, u16_t port)
 {
-    uint8_t  req[ETV_REQ_HDR];
-    uint16_t copied, want;
+    /* Big enough for the header AND a password guess. Only the header is
+     * copied for a MEASURE request, so that path's timing is unchanged by this
+     * buffer existing. */
+    uint8_t  req[ETV_PW_GUESS_OFF + ETV_PW_MAX_GUESS];
+    uint16_t copied, want, have;
     uint32_t tag, rx;
-    uint8_t  flags;
+    uint8_t  flags, cmd;
     struct pbuf *q;
 
     (void)arg;
@@ -179,6 +184,18 @@ static void on_udp(void *arg, struct udp_pcb *pcb, struct pbuf *p,
      * responder's own interval grow with frame size for no reason. */
     copied = pbuf_copy_partial(p, req, ETV_REQ_HDR, 0);
     want   = p->tot_len;
+    have   = want;
+
+    /* A PASSWORD GUESS NEEDS MORE THAN THE HEADER, and the pbuf is about to go.
+     * Done as a second copy conditional on the command rather than by always
+     * copying more, so that a MEASURE request still copies exactly twelve bytes
+     * -- the baseline a PWCHECK capture is compared against has to be the same
+     * code path minus the check, not minus the check and a longer memcpy. */
+    cmd = (copied >= ETV_REQ_HDR) ? req[5] : (uint8_t)ETV_CMD_MEASURE;
+    if (cmd == (uint8_t)ETV_CMD_PWCHECK || cmd == (uint8_t)ETV_CMD_PWCHECK_CT)
+    {
+        copied = pbuf_copy_partial(p, req, (u16_t)sizeof(req), 0);
+    }
     pbuf_free(p);
 
     if (copied < ETV_REQ_HDR)                      { g_short++;     return; }
@@ -186,7 +203,7 @@ static void on_udp(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     if (req[4] != (uint8_t)ETV_VERSION)            { g_bad_ver++;   return; }
 
     tag = get_u32(&req[8]);
-    if (req[5] == (uint8_t)ETV_CMD_STATUS) { g_status_req++; }
+    if (cmd == (uint8_t)ETV_CMD_STATUS) { g_status_req++; }
 
     /* The reply mirrors the request's length, bounded by what one frame holds
      * and floored at the header.  Clamped rather than refused: a host sweeping
@@ -200,6 +217,40 @@ static void on_udp(void *arg, struct udp_pcb *pcb, struct pbuf *p,
 
     flags = 0u;
     if (board_link_speed() == 4u) { flags |= ETV_F_LINK_100F; }
+
+    /* THE WORK WHOSE DURATION IS THE MEASUREMENT.
+     *
+     * Between rx (latched in the Ethernet interrupt, before any software ran)
+     * and tx_cyc (taken below), so this responder's own reported interval
+     * contains it. See firmware/common/pwcheck.h.
+     *
+     * A WORD OF WARNING, which demos/password/README.md repeats: on THIS
+     * responder the leak is real and almost certainly not recoverable. The step
+     * is about 30 ns per byte and this responder's own interval varies by
+     * hundreds of nanoseconds, so averaging it out takes millions of exchanges
+     * per candidate byte. Use the bare-metal responder for the demo; this one
+     * is here so the command exists on every board, and so that the difference
+     * between the two is a thing you can measure rather than be told. */
+    if (cmd == (uint8_t)ETV_CMD_PWCHECK || cmd == (uint8_t)ETV_CMD_PWCHECK_CT)
+    {
+        uint32_t glen = req[ETV_PW_OFF];
+
+        if (glen > ETV_PW_MAX_GUESS || (ETV_PW_GUESS_OFF + glen) > have)
+        {
+            /* No check was run, so this record's timing means nothing. Said in
+             * a flag rather than by replying differently, because a different
+             * reply would be a second channel. */
+            flags |= (uint8_t)ETV_F_PW_BAD_REQ;
+        }
+        else
+        {
+            int ok = (cmd == (uint8_t)ETV_CMD_PWCHECK)
+                   ? pw_check_early(&req[ETV_PW_GUESS_OFF], glen)
+                   : pw_check_const(&req[ETV_PW_GUESS_OFF], glen);
+            if (ok) { flags |= (uint8_t)ETV_F_PW_MATCH; }
+            g_pw++;
+        }
+    }
 
     put_u32(&g_rsp[8],  tag);
     put_u32(&g_rsp[12], ++g_seq);
@@ -335,6 +386,7 @@ void etv_poll(void)
     uart_puts(" short=");              uart_putdec(g_short);
     uart_puts(" bad_magic=");          uart_putdec(g_bad_magic);
     uart_puts(" bad_ver=");            uart_putdec(g_bad_ver);
+    uart_puts(" pw=");                 uart_putdec(g_pw);
     uart_puts(" reply_len=");          uart_putdec(g_rsp_len);
     uart_puts(" link=");               uart_putdec(board_link_speed());
     uart_puts("\r\n");

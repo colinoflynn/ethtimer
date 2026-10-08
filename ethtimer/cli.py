@@ -42,6 +42,10 @@ _DEMOS = os.path.join(_ROOT, "demos")
 #: name -> the file that defines and registers it. Kept as a table rather than a
 #: scan so that `--list` is honest about what exists without importing every
 #: demo, and so a typo names the file it could not find.
+#: `password` is deliberately NOT here. It is not a `campaign` target: the attack
+#: is a sweep of thousands of short runs with a different request each time, which
+#: `demos/password/recover.py` drives through `Device` directly. A Target would
+#: have to pretend one capture was the whole thing.
 _BUILTIN = {
     "dns": os.path.join(_DEMOS, "dns", "dns_target.py"),
     "jitter": os.path.join(_DEMOS, "jitter", "jitter_target.py"),

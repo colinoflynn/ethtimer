@@ -108,16 +108,18 @@ ifeq ($(APP),instrument)
 else ifeq ($(APP),victim)
   TARGET  = ethtimer_victim
   BUILD   = Build/$(BOARD)-victim
-  APP_SRC = victim/src/main.c victim/src/victim.c
-  APP_INC = -Ivictim/inc
+  APP_SRC = victim/src/main.c victim/src/victim.c common/pwcheck.c
+  APP_INC = -Ivictim/inc -Icommon
   APP_LWIP = yes
 else ifeq ($(APP),victim-raw)
   TARGET  = ethtimer_victim_raw
   BUILD   = Build/$(BOARD)-victim-raw
-  APP_SRC = victim_raw/src/main.c victim_raw/src/rawnet.c
+  APP_SRC = victim_raw/src/main.c victim_raw/src/rawnet.c common/pwcheck.c
   # The WIRE format is victim/inc's, shared unchanged, so that one host adapter
-  # measures either responder and the two are comparable.
-  APP_INC = -Ivictim_raw/inc -Ivictim/inc
+  # measures either responder and the two are comparable. common/ holds the
+  # password check, compiled into both responders for the same reason: the
+  # thing being measured has to be the same code on both.
+  APP_INC = -Ivictim_raw/inc -Ivictim/inc -Icommon
   APP_LWIP = no
   ifneq ($(BOARD),f429)
     $(error APP=victim-raw is f429 only -- it drives the F4 Ethernet DMA \

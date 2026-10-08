@@ -71,6 +71,34 @@
 #define ETV_CMD_STATUS       1u   /* same reply, plus a console line. Not for a
                                    * capture: printing is tens of microseconds
                                    * of UART and would be measured. */
+/* CHECK A PASSWORD GUESS, and take as long doing it as the guess deserves.
+ *
+ * The reply says only whether the guess was right, in one flag bit, which is all
+ * a real login gives back. What it also says, in how long it took, is how many
+ * leading bytes were right -- because ETV_CMD_PWCHECK compares them one at a
+ * time and stops at the first wrong one.
+ *
+ * ETV_CMD_PWCHECK_CT is the same check written the way it should be: every byte
+ * read whatever happens, no branch on the secret. It is the control, and it is
+ * not optional. A flat result from the leaky one and a flat result from this one
+ * look identical, so without both a capture cannot tell "constant time" from
+ * "my instrument is too noisy to see 30 nanoseconds".
+ *
+ * The guess follows the request header:
+ *
+ *   12     guess_len  u8    bytes of guess that follow, <= ETV_PW_MAX_GUESS
+ *   13     rsvd       u8    0
+ *   14..   guess      guess_len bytes
+ *
+ * A request shorter than that, or one whose guess_len runs past the end of the
+ * datagram, is counted and dropped rather than checked against a shorter guess:
+ * a check of the wrong length is a timing measurement of the wrong thing. */
+#define ETV_CMD_PWCHECK      2u
+#define ETV_CMD_PWCHECK_CT   3u
+
+#define ETV_PW_OFF           12u  /* guess_len lives here                     */
+#define ETV_PW_GUESS_OFF     14u  /* the guess itself                         */
+#define ETV_PW_MAX_GUESS     32u  /* bound, so a bad length cannot walk off    */
 
 /* ---- reply: responder -> host ------------------------------------------ *
  *
@@ -101,6 +129,15 @@
 #define ETV_F_LINK_100F      0x01u  /* the link was 100 Mbit full duplex. A
                                      * 10 Mbit link reads as up and serialises
                                      * ten times more slowly. */
+#define ETV_F_PW_MATCH       0x04u  /* the guess in a PWCHECK request was right.
+                                     * ONE BIT, like a real login. Everything
+                                     * else a capture learns about the secret is
+                                     * in rx_cyc/tx_cyc. */
+#define ETV_F_PW_BAD_REQ     0x08u  /* a PWCHECK request whose guess did not fit
+                                     * in the datagram. No check was run, so its
+                                     * timing means nothing and the host must
+                                     * drop the record rather than average it. */
+
 #define ETV_F_CYC_WRAP       0x02u  /* tx_cyc < rx_cyc: the 32-bit cycle counter
                                      * wrapped inside this exchange. At 180 MHz
                                      * that is once per 23.9 s of uptime and the

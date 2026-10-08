@@ -77,6 +77,19 @@ NOT_MIRRORED = {
     "ETV_IP1": "build-time default address, not wire protocol",
     "ETV_IP2": "build-time default address, not wire protocol",
     "ETV_IP3": "build-time default address, not wire protocol",
+    # The password demo's half of the protocol is mirrored in
+    # demos/password/pw.py, not in demos/jitter/etv.py, because the instrument's
+    # own library has no business knowing about it -- and it is checked just as
+    # exhaustively, in tests/test_password_proto.py. Listed here by name rather
+    # than by prefix so that adding a third command cannot slip through both
+    # files at once.
+    "ETV_CMD_PWCHECK": "mirrored in demos/password/pw.py",
+    "ETV_CMD_PWCHECK_CT": "mirrored in demos/password/pw.py",
+    "ETV_PW_OFF": "mirrored in demos/password/pw.py",
+    "ETV_PW_GUESS_OFF": "mirrored in demos/password/pw.py",
+    "ETV_PW_MAX_GUESS": "mirrored in demos/password/pw.py",
+    "ETV_F_PW_MATCH": "mirrored in demos/password/pw.py",
+    "ETV_F_PW_BAD_REQ": "mirrored in demos/password/pw.py",
 }
 
 

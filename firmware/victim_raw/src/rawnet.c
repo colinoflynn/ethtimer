@@ -54,6 +54,7 @@
 
 #include "board.h"
 #include "et_victim.h"
+#include "pwcheck.h"
 #include "lan8742.h"
 #include "rawnet.h"
 
@@ -124,6 +125,11 @@ static uint32_t g_seq;                /* replies sent */
 static uint32_t g_seen;               /* frames accepted on our port */
 static uint32_t g_arp;                /* ARP requests answered */
 static uint32_t g_drop;               /* frames looked at and not for us */
+static uint32_t g_pw;                 /* password checks actually run    */
+/* Bumped by a STATUS request, consumed by the main loop. A flag rather than a
+ * print: printing from the interrupt would put a UART transmit inside the
+ * interval being measured, which is the thing this firmware exists not to do. */
+static volatile uint32_t g_status_req;
 /* WHY THE REJECT PATH IS COUNTED BY REASON. "A frame arrived and was not
  * answered" has six causes here and they are six different repairs: a cable
  * carrying something else, an IP header this does not parse, a port mismatch, a
@@ -298,6 +304,8 @@ int board_eth_isr_hook(uint32_t cyc, uint32_t dmasr)
             uint16_t want = (udp_len > UDP_HDR)
                           ? (uint16_t)(udp_len - UDP_HDR) : 0u;
             uint8_t  changed = 0u;
+            uint8_t  cmd;
+            uint8_t  flags;
 
             g_seen++;
 
@@ -327,7 +335,47 @@ int board_eth_isr_hook(uint32_t cyc, uint32_t dmasr)
             put32le(&tx_reply[PAY_OFF + 12], ++g_seq);
             put32le(&tx_reply[PAY_OFF + 16], cyc);
             put32le(&tx_reply[PAY_OFF + 28], g_seen);
-            tx_reply[PAY_OFF + 5] = (uint8_t)(raw_link_100f() ? ETV_F_LINK_100F : 0u);
+            flags = (uint8_t)(raw_link_100f() ? ETV_F_LINK_100F : 0u);
+
+            /* THE WORK WHOSE DURATION IS THE MEASUREMENT.
+             *
+             * It sits between rx_cyc (latched before any software ran) and
+             * tx_cyc (taken a few lines below), so the responder's own reported
+             * interval contains it -- which means the host sees the leak in
+             * `victim_us` directly as well as in the round trip. Having both is
+             * the point: one says the channel exists inside the device, the
+             * other says it is reachable from the far end of a cable.
+             *
+             * MEASURE requests do not come through here at all, so the baseline
+             * this is compared against is the same code path minus the check. */
+            cmd = f[PAY_OFF + 5];
+            if (cmd == (uint8_t)ETV_CMD_STATUS) { g_status_req++; }
+            if (cmd == (uint8_t)ETV_CMD_PWCHECK
+                || cmd == (uint8_t)ETV_CMD_PWCHECK_CT)
+            {
+                uint32_t glen = f[PAY_OFF + ETV_PW_OFF];
+                uint32_t have = (uint32_t)udp_len - UDP_HDR;
+
+                if (glen > ETV_PW_MAX_GUESS
+                    || (ETV_PW_GUESS_OFF + glen) > have)
+                {
+                    /* No check was run, so this record's timing means nothing.
+                     * Said in a flag rather than by replying differently,
+                     * because a different reply would be a second channel. */
+                    flags |= (uint8_t)ETV_F_PW_BAD_REQ;
+                }
+                else
+                {
+                    const uint8_t *guess = &f[PAY_OFF + ETV_PW_GUESS_OFF];
+                    int ok = (cmd == (uint8_t)ETV_CMD_PWCHECK)
+                           ? pw_check_early(guess, glen)
+                           : pw_check_const(guess, glen);
+                    if (ok) { flags |= (uint8_t)ETV_F_PW_MATCH; }
+                    g_pw++;
+                }
+            }
+
+            tx_reply[PAY_OFF + 5] = flags;
 
             /* Last, and immediately before the descriptor is armed. */
             put32le(&tx_reply[PAY_OFF + 20], DWT->CYCCNT);
@@ -417,6 +465,8 @@ uint32_t raw_seen(void) { return g_seen; }
 uint32_t raw_arp(void)  { return g_arp; }
 uint32_t raw_drop(void) { return g_drop; }
 uint32_t raw_frames(void) { return g_frames; }
+uint32_t raw_pw(void) { return g_pw; }
+uint32_t raw_status_req(void) { return g_status_req; }
 void raw_drop_reasons(uint32_t out[5])
 {
     out[0] = g_n_short; out[1] = g_n_notip; out[2] = g_n_notudp;

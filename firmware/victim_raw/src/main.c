@@ -68,8 +68,6 @@ int main(void)
 {
     uint8_t  last_link = 0xFFu;
     uint32_t last_tick = 0u;
-    uint32_t last_stat = 0u;
-    uint32_t last_frames = 0xFFFFFFFFu;
     int rc;
 
     /* The clock tree and console from the board support, shared with the
@@ -125,33 +123,39 @@ int main(void)
                 uart_puts("\r\n");
             }
 
-            /* Counters, at most once a second and only when one has moved.
+            /* Counters, ON REQUEST ONLY -- never on a timer.
              *
-             * A responder that is SILENT is the case worth diagnosing, and the
-             * six reject reasons are the diagnosis: a cable carrying something
-             * else, an IP header this does not parse, a port mismatch, a stale
-             * protocol version, a frame too short, or a receive ring that has
-             * lost step with the DMA. One counter cannot tell those apart.
+             * THIS LINE USED TO PRINT ONCE A SECOND whenever frames were
+             * moving, which during a capture is always, and it CORRUPTED THE
+             * MEASUREMENT. A ninety-character line at 921 600 baud is about a
+             * millisecond, and a group of fifteen exchanges at a 50 us gap is
+             * about 0.8 ms -- so a whole group could land inside one print and
+             * read 60 cycles high. The interrupt is not delayed by a UART poll,
+             * but the instruction cache is: the main loop thrashing flash
+             * evicts the handler's own code.
              *
-             * Gated on movement rather than printed on a timer, because a UART
-             * transmit is tens of microseconds and a line every second would
-             * appear as a regular outlier in somebody's jitter histogram. While
-             * a capture runs, `frames` moves every exchange -- so this is
-             * deliberately rate-limited to 1 Hz and deliberately short. */
-            if ((now - last_stat) >= 1000u)
+             * The symptom was a password scan that picked a candidate whose
+             * entire group was slow, which no amount of trimming inside a group
+             * can fix, and then reported five positions of "no separation". The
+             * diagnostic added to understand the measurement was perturbing it.
+             *
+             * So it is a reply to an explicit ETV_CMD_STATUS request now, like
+             * the lwIP responder's. Ask for it when you want it; nothing is
+             * printed while measuring. */
             {
-                uint32_t f = raw_frames();
+                static uint32_t served;
+                uint32_t asked = raw_status_req();
 
-                last_stat = now;
-                if (f != last_frames)
+                if (asked != served)
                 {
                     uint32_t why[5];
 
-                    last_frames = f;
+                    served = asked;
                     raw_drop_reasons(why);
-                    uart_puts("victim: frames="); uart_putdec(f);
+                    uart_puts("victim: frames="); uart_putdec(raw_frames());
                     uart_puts(" seen=");          uart_putdec(raw_seen());
                     uart_puts(" sent=");          uart_putdec(raw_seq());
+                    uart_puts(" pw=");            uart_putdec(raw_pw());
                     uart_puts(" arp=");           uart_putdec(raw_arp());
                     uart_puts(" drop=");          uart_putdec(raw_drop());
                     uart_puts(" (short=");        uart_putdec(why[0]);

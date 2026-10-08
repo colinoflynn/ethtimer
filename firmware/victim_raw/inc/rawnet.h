@@ -35,6 +35,8 @@ uint32_t raw_seen(void);             /* requests accepted                   */
 uint32_t raw_arp(void);              /* ARP requests answered               */
 uint32_t raw_drop(void);             /* frames looked at and not for us     */
 uint32_t raw_frames(void);           /* receive descriptors processed, total */
+uint32_t raw_pw(void);               /* password checks actually run         */
+uint32_t raw_status_req(void);       /* STATUS requests received             */
 /* short, not-IPv4, not-UDP, wrong-port, wrong-magic.  Six causes of silence,
  * six different repairs; one counter cannot tell them apart. */
 void     raw_drop_reasons(uint32_t out[5]);

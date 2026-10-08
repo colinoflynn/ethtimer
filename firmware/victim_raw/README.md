@@ -131,6 +131,15 @@ somebody's jitter histogram:
 victim: frames=20003 seen=20000 sent=20000 arp=1 drop=2 (short=0 notip=2 notudp=0 port=0 magic=0)
 ```
 
+## It also leaks a password on purpose
+
+Both responders implement a password check whose running time depends on how many
+leading bytes of a guess were right, and a constant-time one beside it. See
+[`../common/pwcheck.h`](../common/pwcheck.h) and
+[`../../demos/password/`](../../demos/password) — the recovery works on this
+responder, and on the lwIP one the leak is real but buried under hundreds of
+nanoseconds of its own variation.
+
 ## Sharing the board support
 
 It compiles the board's `board.c` and calls `board_clock_console_init()` — the

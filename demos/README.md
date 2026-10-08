@@ -14,6 +14,12 @@ worked examples to copy when pointing the instrument at something else.
 | [`oscore`](oscore) | UDP 5683 | `bank` | an OSCORE server, master secret known | yes |
 | [`tls`](tls) | TCP 443 | `relay` then `bank` | an HTTPS server, TLS 1.2 CBC, key log available | yes |
 
+And one that is not a `campaign` target at all:
+
+| | | |
+|---|---|---|
+| [`password`](password) | UDP 7777 | **recovers a secret from an early-returning `strcmp`**, and shows that a constant-time one gives nothing. Drives `Device` directly, because the attack is thousands of short runs with a different request each time |
+
 **Start with [`dns`](dns).** It is the only one whose other end you already
 have, so it is the demo that separates "my build is wrong" from "my adapter is
 wrong" — and those two failures look identical from a capture that returns

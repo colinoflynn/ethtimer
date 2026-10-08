@@ -194,6 +194,7 @@ edge runs one way only.
 |---|---|---|---|
 | [`dns`](demos/dns) | UDP 53 | `bank` | **any resolver.** The zero-setup demo |
 | [`jitter`](demos/jitter) | UDP 7777 | `fixed` | a second board running `firmware/victim` or `firmware/victim_raw`. Measures the **path**, not an endpoint |
+| [`password`](demos/password) | UDP 7777 | — | the same responder. **Recovers a secret from an early-returning `strcmp`**, and shows a constant-time one gives nothing |
 | [`snmpv3`](demos/snmpv3) | UDP 161 | `fixed` | an SNMPv3 authPriv agent with known credentials |
 | [`oscore`](demos/oscore) | UDP 5683 | `bank` | an OSCORE server with a known master secret |
 | [`tls`](demos/tls) | TCP 443 | `relay` + `bank` | an HTTPS server speaking TLS 1.2 CBC |
@@ -219,6 +220,33 @@ TLS uses `relay` for the handshake and `bank` for the bulk phase. A serial round
 trip per exchange costs an order of magnitude in rate and buys nothing there,
 because the host holds the TLS write state and can generate records ahead of the
 responses.
+
+## Timing side channels, both halves
+
+[`demos/password`](demos/password) is the demo with teeth. The responder also
+implements a password check that compares a guess against its secret one byte at
+a time and **returns at the first byte that differs** — the comparison every
+codebase has written at least once — and, beside it, the same check written
+constant-time.
+
+The leak is 11 cycles, 61 ns, per correct byte. That is enough:
+
+```
+$ python demos/password/recover.py --port COM9 --n 21 --series rtt
+  position 0: 104 h      17.0519 us, +0.0257 us clear of the runner-up   -> 'h'
+  ...
+  recovered 'hunter2!' in 59 s and 39k exchanges (2k requests)
+  CORRECT: it is the secret compiled into the firmware.
+```
+
+`--series rtt` means that used **only the round trip** — what an attacker at the
+far end of the cable has, with no help from the responder's self-reporting.
+
+And the control, which is the half that makes it a measurement rather than an
+anecdote: `--const-time` runs the same attack against the constant-time
+comparison on the same hardware with the same instrument, and all 256 candidates
+tie to the last digit at every position. A flat result and a blunt instrument
+look identical from outside, so the demo ships both.
 
 ## Acceptance: a capture checks its own data
 
