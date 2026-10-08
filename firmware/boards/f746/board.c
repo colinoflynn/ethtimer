@@ -122,6 +122,11 @@ uint8_t board_link_speed(void)
   return 0u;
 }
 
+
+/* On this part the AHB clock IS the core clock, so this is the one expression
+ * the instrument used before board_cyccnt_hz() existed. */
+uint32_t board_cyccnt_hz(void) { return HAL_RCC_GetHCLKFreq(); }
+
 void board_netif_set(const uint8_t ip[4], const uint8_t mask[4],
                      const uint8_t gw[4])
 {

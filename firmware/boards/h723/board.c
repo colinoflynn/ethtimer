@@ -1,12 +1,26 @@
 /**
   ******************************************************************************
   * @file    board.c
-  * @brief   NUCLEO-F429ZI board support for ethtimer: clock tree, console,
+  * @brief   NUCLEO-H723ZG board support for ethtimer: clock tree, console,
   *          PHY and netif. Nothing in src/ mentions a part number.
   ******************************************************************************
-  * Clock tree, ETH/LwIP bring-up and HAL usage are derived from STM32Cube's
-  * NUCLEO LwIP applications, with LwIP in NO_SYS=1 raw-API mode.
-  * Copyright (c) 2016 STMicroelectronics.
+  * The netif and PHY bring-up is the F746 board's, unchanged: the H7 and the F7
+  * share the same generation of HAL ETH driver, so the Ethernet code is the
+  * same code. Derived from STM32Cube's NUCLEO LwIP applications with LwIP in
+  * NO_SYS=1 raw-API mode. Copyright (c) 2016 STMicroelectronics.
+  *
+  * WHAT IS ACTUALLY DIFFERENT ON THIS PART is below: the core supply, the
+  * voltage scaling, a three-stage PLL, and the fact that the Ethernet DMA
+  * cannot see all of RAM. See SystemClock_Config, and the linker script.
+  *
+  * THE L1 D-CACHE IS LEFT OFF on this board.  An instrument gains nothing from
+  * it -- it spends its time waiting on a wire -- and turning it off removes
+  * every DMA-coherency carve-out, so the ETH descriptors and buffers are
+  * ordinary memory that merely has to be in the right bus domain.  On an H7
+  * with the D-cache on, every descriptor touch needs invalidate/clean around
+  * it, and the failure when one is missed is a frame that arrives and is
+  * processed from a stale cache line -- which is a corrupt capture, not a
+  * crash.  Not worth it for a board that spends its time waiting on a wire.
   ******************************************************************************
   */
 #include "main.h"
@@ -31,14 +45,32 @@ static void Console_Config(void);
  * Generated from this board's CubeMX `main.c` by scratchpad/mk_board.py and then
  * maintained by hand.  What is board-specific lives here and nowhere else: the
  * clock tree, the console pins, and the UART register flavour (F7 exposes
- * ISR/TDR, F4 exposes SR/DR).  `src/` must not mention either part number.
+ * ISR/TDR).  `src/` must not mention a part number at all.
  */
 
 void board_init(void)
 {
+  SCB_EnableICache();
 
   HAL_Init();
   SystemClock_Config();
+
+  /* THE D2 SRAM IS CLOCK-GATED OFF AT RESET on this family, and the Ethernet
+     descriptor rings live there (see the linker script).  Writing to an
+     unclocked SRAM does not read back as zero and does not fault at the
+     offending instruction: it raises an IMPRECISE bus fault, which escalates
+     to a HardFault at whatever the core happened to reach next.
+     Measured here before this line existed: CFSR = 0x00000400 (IMPRECISERR),
+     HFSR = 0x40000000 (FORCED), BFAR invalid, the stacked PC useless -- a
+     board that clocks correctly, configures its UART correctly, and then sits
+     silently in a fault handler, which reads as a bad flash.
+
+     Both halves are enabled: the descriptors are in the first 16 KB, but the
+     two are one contiguous region as far as the linker script is concerned and
+     a ring that grows past 0x30004000 must not fall off a clock boundary. */
+  __HAL_RCC_D2SRAM1_CLK_ENABLE();
+  __HAL_RCC_D2SRAM2_CLK_ENABLE();
+
   Console_Config();
 
   lwip_init();
@@ -116,9 +148,21 @@ uint8_t board_link_speed(void)
 }
 
 
-/* On this part the AHB clock IS the core clock, so this is the one expression
- * the instrument used before board_cyccnt_hz() existed. */
-uint32_t board_cyccnt_hz(void) { return HAL_RCC_GetHCLKFreq(); }
+/* NOT HAL_RCC_GetHCLKFreq() on this part.  That returns the AHB clock, which
+ * here is the core clock divided by HPRE -- 200 MHz against the core's 400 --
+ * and DWT->CYCCNT counts CORE cycles.  Reporting the AHB clock would have made
+ * every measured turnaround read twice its real length, uniformly, with
+ * nothing in the output to say so.
+ *
+ * HAL_RCC_GetHCLKFreq() is called for its side effect: it is what refreshes
+ * SystemCoreClock from the live RCC registers.  SystemCoreClock alone would
+ * also be right, but only because HAL_RCC_ClockConfig happened to set it, and
+ * that is a fact about initialisation order rather than about the clock. */
+uint32_t board_cyccnt_hz(void)
+{
+  (void)HAL_RCC_GetHCLKFreq();
+  return SystemCoreClock;
+}
 
 void board_netif_set(const uint8_t ip[4], const uint8_t mask[4],
                      const uint8_t gw[4])
@@ -160,41 +204,82 @@ static void Netif_Config(void)
   else                           { netif_set_down(&gnetif); }
 }
 
-/** HSE 8 MHz (ST-LINK MCO bypass) -> PLL -> 180 MHz, 5 wait states.
+/** HSI 64 MHz -> PLL1 -> 400 MHz CPU, 200 MHz AHB, 100 MHz APB.
  *
- * PLLM 8, PLLN 360, PLLP 2: 8/8 * 360 / 2 = 180 MHz, with the over-drive
- * regulator on, which this part needs above 168.  The instrument's clock is
- * reported in GET_INFO and carried in every BATCH_HDR, so a host turns
- * cycles into microseconds from what the board says rather than from a
- * constant -- which is what lets this board and the 216 MHz one agree on a
- * median to well under a microsecond. */
+ * HSI RATHER THAN THE ST-LINK's 8 MHz MCO, deliberately. The MCO reaches the
+ * MCU through a solder-bridge configuration that differs between Nucleo
+ * revisions, and an HSE that is not actually connected does not fail visibly:
+ * HAL_RCC_OscConfig spins waiting for HSERDY and the board never prints
+ * anything, which reads as a bad flash rather than a clock. HSI is on at reset
+ * on every one of these parts.
+ *
+ * Nothing the instrument does needs a crystal's accuracy. The 50 MHz RMII
+ * reference clock comes from the PHY, not from here, so Ethernet timing is
+ * unaffected; the console's baud rate is the only thing HSI's +/-1 % touches,
+ * and 921 600 from a 100 MHz APB divides to 108.5 -- about 0.5 % of rounding on
+ * top, well inside what 8N1 framing tolerates. AND IT DOES NOT AFFECT A
+ * MEASUREMENT: `dt_hw` is a count of THIS clock's cycles and GET_INFO reports
+ * the frequency the host should divide by, so a board running 0.5 % fast
+ * reports microseconds 0.5 % short, uniformly, with no effect on the structure
+ * of the distribution. If absolute microseconds to better than a percent ever
+ * matter here, that is the moment to find the crystal -- not before.
+ *
+ * THE ARITHMETIC. HSI 64 MHz / DIVM1 16 = 4 MHz reference (VCIRANGE_2 covers
+ * 4-8 MHz), x DIVN1 200 = 800 MHz VCO (WIDE covers 192-836 MHz), / DIVP1 2 =
+ * 400 MHz. D1CPRE 1 leaves the CPU at 400; HPRE 2 puts AHB at 200 and every
+ * APB at 100.
+ *
+ * 400 rather than this part's maximum 550: 550 needs voltage scale 0 and the
+ * SYSCFG over-drive sequence, and buys an instrument that spends its time
+ * waiting on a wire precisely nothing. Four wait states on the flash where the
+ * table allows fewer, for the same reason -- extra wait states cannot be wrong,
+ * and a clock change that silently needs one more is a part that hard-faults
+ * at a random instruction.
+ */
 static void SystemClock_Config(void)
 {
-  RCC_ClkInitTypeDef RCC_ClkInitStruct;
-  RCC_OscInitTypeDef RCC_OscInitStruct;
+  RCC_OscInitTypeDef osc = {0};
+  RCC_ClkInitTypeDef clk = {0};
 
-  __HAL_RCC_PWR_CLK_ENABLE();
+  /* THE SUPPLY CONFIGURATION COMES FIRST, and getting it wrong is the one
+     failure here that looks like a dead board: the voltage-scaling write
+     below never reports ready, HAL spins, and nothing is ever printed.
+
+     THE LDO, not the SMPS. Several H7 lines have a switched-mode core
+     supply and the H72x/H73x do not -- PWR_DIRECT_SMPS_SUPPLY is not even
+     declared for this part, which is a better error than the one an H743
+     example copied verbatim would have given here. */
+  if (HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY) != HAL_OK) { while (1) {} }
+
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  while (!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) { }
 
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 360;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 7;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) { while (1) {} }
+  osc.OscillatorType      = RCC_OSCILLATORTYPE_HSI;
+  osc.HSIState            = RCC_HSI_DIV1;        /* 64 MHz, not 64/2 */
+  osc.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  osc.PLL.PLLState        = RCC_PLL_ON;
+  osc.PLL.PLLSource       = RCC_PLLSOURCE_HSI;
+  osc.PLL.PLLM            = 16;                  /* 64 / 16 = 4 MHz  */
+  osc.PLL.PLLN            = 200;                 /* 4 * 200 = 800 MHz VCO */
+  osc.PLL.PLLP            = 2;                   /* 800 / 2 = 400 MHz */
+  osc.PLL.PLLQ            = 4;
+  osc.PLL.PLLR            = 2;
+  osc.PLL.PLLRGE          = RCC_PLL1VCIRANGE_2;  /* reference is 4-8 MHz */
+  osc.PLL.PLLVCOSEL       = RCC_PLL1VCOWIDE;     /* VCO is 192-836 MHz  */
+  osc.PLL.PLLFRACN        = 0;
+  if (HAL_RCC_OscConfig(&osc) != HAL_OK) { while (1) {} }
 
-  if (HAL_PWREx_EnableOverDrive() != HAL_OK) { while (1) {} }
-
-  RCC_ClkInitStruct.ClockType = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK |
-                                 RCC_CLOCKTYPE_PCLK1  | RCC_CLOCKTYPE_PCLK2);
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK) { while (1) {} }
+  clk.ClockType      = (RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_HCLK |
+                        RCC_CLOCKTYPE_D1PCLK1 | RCC_CLOCKTYPE_PCLK1 |
+                        RCC_CLOCKTYPE_PCLK2   | RCC_CLOCKTYPE_D3PCLK1);
+  clk.SYSCLKSource   = RCC_SYSCLKSOURCE_PLLCLK;
+  clk.SYSCLKDivider  = RCC_SYSCLK_DIV1;          /* CPU 400 MHz */
+  clk.AHBCLKDivider  = RCC_HCLK_DIV2;            /* AHB 200 MHz */
+  clk.APB3CLKDivider = RCC_APB3_DIV2;            /* 100 MHz     */
+  clk.APB1CLKDivider = RCC_APB1_DIV2;
+  clk.APB2CLKDivider = RCC_APB2_DIV2;
+  clk.APB4CLKDivider = RCC_APB4_DIV2;
+  if (HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_4) != HAL_OK) { while (1) {} }
 }
 
 /* --------------------------------------------------------------------------
@@ -269,12 +354,20 @@ static void Console_Config(void)
 
 void USART3_IRQHandler(void)
 {
-  uint32_t sr = USART3->SR;
-  if (sr & USART_SR_RXNE) { uart_rx_push((uint8_t)(USART3->DR & 0xFF)); }
-  else if (sr & (USART_SR_ORE | USART_SR_FE | USART_SR_NE))
+  uint32_t isr = USART3->ISR;
+  /* The H7's USART has a FIFO, so the flags are named for both the register
+     and the FIFO: RXNE_RXFNE, not RXNE. The FIFO itself is left disabled --
+     the receiver is interrupt-driven into a 4 KB ring already, and a FIFO
+     would only move where the bytes queue. */
+  if (isr & USART_ISR_RXNE_RXFNE) { uart_rx_push((uint8_t)(USART3->RDR & 0xFF)); }
+  if (isr & (USART_ISR_ORE | USART_ISR_FE | USART_ISR_NE))
   {
     uart_rx_lost++;
-    (void)USART3->DR;            /* F4 clears these by reading SR then DR */
+    USART3->ICR = USART_ICR_ORECF | USART_ICR_FECF | USART_ICR_NECF;
+    /* Read the register back after clearing it.  On this M7 a handler short
+       enough to return before the write has reached the peripheral is
+       re-entered immediately, and the core spins in the ISR forever. */
+    (void)USART3->ISR;
   }
 }
 
@@ -284,8 +377,8 @@ void uart_write(const uint8_t *p, uint32_t n)
      to a 20-byte trace record. */
   while (n--)
   {
-    while (!(USART3->SR & USART_SR_TXE)) { }
-    USART3->DR = *p++;
+    while (!(USART3->ISR & USART_ISR_TXE_TXFNF)) { }
+    USART3->TDR = *p++;
   }
 }
 

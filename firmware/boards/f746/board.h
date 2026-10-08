@@ -26,6 +26,12 @@ void board_netif_set(const uint8_t ip[4], const uint8_t mask[4],
                      const uint8_t gw[4]);
 void board_netif_get(uint8_t ip[4], uint8_t mask[4], uint8_t gw[4]);
 uint8_t board_link_speed(void);
+/* The rate DWT->CYCCNT ticks at, in Hz.  A BOARD question, not an instrument
+ * one: on parts where the AHB clock is the core clock these are the same
+ * number, and on the H7 they differ by the D1CPRE/HPRE divisions.  Everything
+ * the instrument reports as a duration is a count of these ticks, so getting
+ * it wrong does not fail -- it reports every exchange uniformly wrong. */
+uint32_t board_cyccnt_hz(void);
 
 /* Provided by board.c, inherited unchanged from the CubeMX console wiring. */
 void uart_write(const uint8_t *p, uint32_t n);

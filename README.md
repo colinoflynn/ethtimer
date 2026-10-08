@@ -49,15 +49,21 @@ you already have one. See [`demos/dns/README.md`](demos/dns/README.md).
 
 ## Boards
 
-| board | build | record ring | request bank | state |
-|---|---|---|---|---|
-| NUCLEO-F746ZG | `make BOARD=f746` (default) | 128 KB | 64 KB / 2 048 entries | run as the instrument |
-| NUCLEO-F429ZI | `make BOARD=f429` | 96 KB | 32 KB / 1 024 entries | run as the instrument |
+| board | build | core | record ring | request bank | state |
+|---|---|---|---|---|---|
+| NUCLEO-F746ZG | `make BOARD=f746` (default) | M7, 216 MHz | 128 KB | 64 KB / 2 048 | run as the instrument |
+| NUCLEO-F429ZI | `make BOARD=f429` | M4, 180 MHz | 96 KB | 32 KB / 1 024 | run as the instrument |
+| NUCLEO-H723ZG | `make BOARD=h723` | M7, 400 MHz | 128 KB | 64 KB / 2 048 | brought up; **no capture yet** — [why](firmware/boards/h723/README.md) |
 
-Both of the first two carry a LAN8742 PHY and put the console on USART3, and
-nothing in `firmware/src/` mentions a part number: adding a board is a
-`boards/<name>/` directory, a `board.mk`, and a line in `tools/fetch_sdk.sh`
-saying which ST components that family needs.
+All three carry a LAN8742 PHY and put the console on USART3, and nothing in
+`firmware/src/` mentions a part number. Adding a board is a `boards/<name>/`
+directory, a `board.mk`, and a line in `tools/fetch_sdk.sh` saying which ST
+components that family needs — see
+[`firmware/boards/README.md`](firmware/boards/README.md), which also lists the
+five things that went wrong porting the H723, every one of which produced a
+working-looking board rather than an error.
+
+`make list` prints what this tree knows about.
 
 The ring and the bank bound **different** things, which is why they are reported
 separately in `GET_INFO` rather than assumed by the host:
@@ -328,9 +334,9 @@ Two of those hooks earn their keep in ways that are not obvious:
   `cryptography` for its certificate helper; nothing else needs it.
 * **Firmware:** `arm-none-eabi-gcc` and GNU make. Built and tested with GCC 10.3
   and 13.x. `tools/fetch_sdk.sh` needs `git` and `bash`.
-* **Hardware:** a NUCLEO-F429ZI or NUCLEO-F746ZG, and a 100 Mbit full-duplex
-  link to whatever you are measuring. A direct cable is the arrangement the
-  demos describe.
+* **Hardware:** a NUCLEO-F429ZI or NUCLEO-F746ZG (or an H723ZG, once one has
+  taken a capture), and a 100 Mbit full-duplex link to whatever you are
+  measuring. A direct cable is the arrangement the demos describe.
 
 ## Licence
 

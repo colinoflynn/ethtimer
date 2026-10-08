@@ -152,6 +152,20 @@ SECTIONS
   
 
   /* Remove information from the standard libraries */
+  /* lwipopts.h pins lwIP's heap to 0x20048000 (LWIP_RAM_HEAP_POINTER), which
+     is a bare address in this part's SRAM rather than an object the linker
+     knows about. So the linker cannot stop .bss growing into it -- and if it
+     ever does, lwIP's heap and some .bss object share memory, which is a
+     corrupt capture rather than a crash. Checked here instead.
+
+     MEM_SIZE is 16 KB plus two struct mem; 20 KB of room is the margin.
+     This is also why the H723 board does NOT pin its heap: see its
+     lwipopts.h. */
+  ASSERT(_ebss <= 0x20048000,
+         ".bss has grown into lwIP's pinned heap at 0x20048000 (see boards/f746/lwipopts.h LWIP_RAM_HEAP_POINTER)")
+  ASSERT(0x20048000 + 20480 <= ORIGIN(RAM) + LENGTH(RAM),
+         "lwIP's pinned heap at 0x20048000 does not fit in RAM")
+
   /DISCARD/ :
   {
     libc.a ( * )

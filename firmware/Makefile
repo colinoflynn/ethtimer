@@ -31,8 +31,12 @@ SDK   ?= vendor
 BDIR   = boards/$(BOARD)
 -include $(BDIR)/board.mk
 
+# A BOARD IS A DIRECTORY WITH A board.mk IN IT, not just a directory under
+# boards/: that also holds a README.md, and counting it as a board is how
+# `make list` first came to try reading boards/README.md/board.mk.
+BOARDS := $(patsubst boards/%/board.mk,%,$(wildcard boards/*/board.mk))
+
 ifeq ($(CUBE_FAMILY),)
-BOARDS := $(notdir $(wildcard boards/*))
 $(error unknown BOARD "$(BOARD)" -- expected boards/$(BOARD)/board.mk. Known: $(BOARDS))
 endif
 
@@ -151,7 +155,7 @@ $(BUILD):
 	mkdir -p $@
 
 list:
-	@for b in $(notdir $(wildcard boards/*)); do \
+	@for b in $(BOARDS); do \
 	    printf "  %-6s %s\n" "$$b" \
 	      "$$(sed -n '1s/^# *//p' boards/$$b/board.mk)"; \
 	done

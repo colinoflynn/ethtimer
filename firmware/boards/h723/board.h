@@ -1,9 +1,11 @@
-/* NUCLEO-F429ZI board support for ethtimer.
+/* NUCLEO-H723ZG board support for ethtimer.
  *
  * Everything part-specific is behind this header: nothing in `src/` mentions
- * F7 or F4.  The UART register names are the visible difference -- the F7
- * exposes ISR/TDR/RDR where the F4 exposes SR/DR -- and the console is USART3
- * on both, which is what the ST-LINK VCP presents.
+ * a part number.  The H7 shares the F7's UART register flavour (ISR/TDR/RDR)
+ * and its console pins (USART3 on PD8/PD9, which is what the ST-LINK VCP
+ * presents), so what actually differs from the F7 board is the power supply
+ * and clock tree, where the Ethernet DMA is allowed to live, and the three
+ * separate ETH clock gates.  See board.c and README.md.
  */
 #ifndef BOARD_H
 #define BOARD_H
@@ -11,8 +13,8 @@
 #include "main.h"
 #include <stdint.h>
 
-#define BOARD_NAME        "NUCLEO-F429ZI"
-#define BOARD_ID          429u
+#define BOARD_NAME        "NUCLEO-H723ZG"
+#define BOARD_ID          723u
 
 struct netif;
 extern struct netif gnetif;
@@ -45,6 +47,6 @@ uint32_t board_uart_lost(void);
  * lock-protected: setting TRCENA alone leaves CYCCNT reading 0 forever.  The
  * unlock write is harmless on the M4, so it lives in the shared start-up path
  * and this macro just says whether it is needed. */
-#define BOARD_DWT_NEEDS_UNLOCK  0
+#define BOARD_DWT_NEEDS_UNLOCK  1
 
 #endif /* BOARD_H */

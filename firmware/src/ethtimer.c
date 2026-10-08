@@ -345,7 +345,7 @@ static uint32_t tcp_exchange(const uint8_t *buf, uint16_t len, uint16_t want,
 
 static void spin_us(uint32_t us)
 {
-    uint32_t hz = HAL_RCC_GetHCLKFreq();
+    uint32_t hz = board_cyccnt_hz();
     uint32_t ticks = (uint32_t)((uint64_t)us * hz / 1000000u);
     uint32_t t0 = DWT->CYCCNT;
     while ((DWT->CYCCNT - t0) < ticks) { }
@@ -369,7 +369,7 @@ static void do_run(uint32_t n, uint32_t gap_us)
      * from 4 us to 281 000 us while leaving the median untouched -- so it is
      * rejected and counted rather than recorded. */
     uint32_t max_dt = (uint32_t)((uint64_t)g_timeout_ms
-                                 * HAL_RCC_GetHCLKFreq() / 1000u);
+                                 * board_cyccnt_hz() / 1000u);
     /* The bank, when loaded, is what a run plays -- once, in order.  Without
      * one the single SET_REQUEST request is repeated, which is right for any
      * victim that supplies the varying input itself. */
@@ -382,7 +382,7 @@ static void do_run(uint32_t n, uint32_t gap_us)
     put_u16(&hdr[4], rec_len);
     put_u16(&hdr[6], g_win_off);
     put_u16(&hdr[8], g_win_len);
-    put_u32(&hdr[10], HAL_RCC_GetHCLKFreq());
+    put_u32(&hdr[10], board_cyccnt_hz());
     frame_send(ET_RSP_BATCH_HDR, hdr, 14);
 
     start_ms = HAL_GetTick();
@@ -542,7 +542,7 @@ static void send_info(void)
 
     p[n++] = ET_PROTO_VERSION;
     p[n++] = ET_FW_VERSION;
-    put_u32(&p[n], HAL_RCC_GetHCLKFreq()); n += 4;
+    put_u32(&p[n], board_cyccnt_hz()); n += 4;
     put_u16(&p[n], ET_MAX_REQ);            n += 2;
     put_u16(&p[n], ET_MAX_WIN);            n += 2;
     put_u32(&p[n], ET_RING_BYTES);         n += 4;
