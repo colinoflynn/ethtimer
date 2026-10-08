@@ -1,43 +1,51 @@
-# ethtimer
+# EthTimer: STM32 Nucleo Based Ethernet Traffic Timer for Timing Attack Demos
 
-*🤖WARNING🤖: This file LLM generated and may read oddly. Will eventually be human-edited
-for that real-life touch and typos.*
+*🤖🥩: This document is partially human-written, partially LLM. This repo flags
+LLM-written docs as I find they can be more annoying to read as a human bag of 🥩*
 
-**A general-purpose instrument for timing Ethernet request/response exchanges,
-to the cycle.**
+I've sometimes needed to send Ethernet data frames, and time the responses. This
+would be interesting if you wanted to e.g., demo [Bernstein's AES timing attack](https://cr.yp.to/antiforgery/cachetiming-20050414.pdf).
 
-A NUCLEO board sends host-supplied bytes — as a UDP datagram, or on a held-open
-TCP connection — latches `DWT->CYCCNT` in the Ethernet interrupts around the
+As I often have some Nucleo boards kicking around, this was a quick project for
+a LLM to write the tooling for me.
+
+Host-supplied bytes are either raw UDP (since they can easily be described),
+or a help-open TCP connection. It uses the `DWT->CYCCNT` in the Ethernet interrupts around the
 exchange, keeps a chosen slice of the reply, and streams the records back over a
-binary serial link. Firmware and host library are **one project**, so the wire
-protocol is defined once and a test holds the two halves together.
+binary serial link. Firmware and host library are **one project**, so this
+has both the Python host and the ST firmware.
 
 What it measures is the **turnaround of the device at the other end of the
 cable**: from the transmit-complete interrupt for the request to the receive
-interrupt for the reply, counted in the instrument's own clock cycles. No host
-scheduler, no USB stack and no operating system sit inside that interval.
+interrupt for the reply, counted in the instrument's own clock cycles.
 
 **Nothing in it knows about any application protocol.** The host says "send
-these bytes, keep those bytes of what comes back"; what the bytes mean is the
-host's business. Pointing it at a new protocol is a host-side adapter of a
-hundred lines or so — not a firmware change, and not a rebuild.
+these bytes, keep those bytes of what comes back". Using a new protocol is a
+host-side adapter change.
+
+## Quickstart
+
+Assuming you have board programmer:
 
 ```bash
 git clone https://github.com/colinoflynn/ethtimer && cd ethtimer
 pip install -e .                      # or: pip install numpy pyserial
 python -m pytest -q                   # host-side tests, no hardware needed
 
-tools/fetch_sdk.sh f429                # pull the pinned ST sources
-make -C firmware BOARD=f429            # -> firmware/Build/f429/ethtimer.bin
-# flash it (see "Flashing", below), then:
-
 python -m ethtimer.cli --ports
 python -m ethtimer.cli --target dns --n 20000 \
     --ip 192.168.1.50 --gw 192.168.1.1 --victim 192.168.1.1
 ```
 
-The `dns` demo is the one to run first: the thing it measures is a resolver, and
-you already have one. See [`demos/dns/README.md`](demos/dns/README.md).
+To build board firmware (you can also get pre-built ones, they happen in CI):
+
+```bash
+tools/fetch_sdk.sh f429                # pull the pinned ST sources
+make -C firmware BOARD=f429            # -> firmware/Build/f429/ethtimer.bin
+# flash it (see "Flashing", below), then:
+```
+
+The `dns` demo is the one to run first as it uses a "real" host, see [`demos/dns/README.md`](demos/dns/README.md).
 
 With a second board you get [`demos/jitter`](demos/jitter), which is the one to
 run when the question is about the **network** rather than about a device:
@@ -49,15 +57,17 @@ python -m ethtimer.cli --target jitter --n 20000 --out direct.npz
 python demos/jitter/analyse.py direct.npz
 ```
 
+The jitter board can use a low-level raw interface that has lower jitter than a normal IP stack.
+
 ## Contents
 
 | | |
 |---|---|
-| [`firmware/`](firmware) | **three applications, one board support.** `src/` is the instrument: `inc/ethtimer.h` is the protocol defined once, `src/ethtimer.c` is framing, dispatch and the capture loop, `src/main.c` is about twenty lines. [`victim/`](firmware/victim) and [`victim_raw/`](firmware/victim_raw) are reference responders that report their own turnaround — on lwIP and on nothing at all. `boards/<b>/` is one board's clock tree, console, PHY, startup and linker script, shared by all three |
+| [`firmware/`](firmware) | `src/` is the instrument: `inc/ethtimer.h` is the protocol defs, `src/ethtimer.c` is framing, dispatch and the capture loop, `src/main.c` is about twenty lines. [`victim/`](firmware/victim) and [`victim_raw/`](firmware/victim_raw) are reference responders that report their own turnaround (victim_raw is lower jitter). `boards/<b>/` is one board's clock tree, console, PHY, startup and linker script, shared by all three |
 | [`ethtimer/`](ethtimer) | the host library. `proto.py`/`device.py` speak the wire protocol and know UDP, TCP and "bytes"; `target.py` is what an adapter must supply; `campaign.py` is everything that is the same for every protocol; `cli.py` is the command line; `aes.py` is the reference AES the acceptance check uses |
 | [`demos/`](demos) | protocol adapters: `dns`, `snmpv3`, `oscore`, `tls`. Each is a `Target` plus the protocol library it needs, and none of them is in the instrument's import path |
-| [`tests/`](tests) | **no hardware, no toolchain.** The protocol mirror test, the AES vectors, the OSCORE RFC vectors |
-| [`examples/`](examples) | worked captures that do something `cli.py` does not — chunked output, for a run measured in hours |
+| [`tests/`](tests) | The protocol mirror test, the AES vectors, the OSCORE RFC vectors |
+| [`examples/`](examples) | worked captures that generate chunked output (more robust than the CLI, recommended for longer captures) |
 | [`tools/`](tools) | `fetch_sdk.sh`, which pulls ST's sources at pinned tags |
 
 ## Boards
