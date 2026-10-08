@@ -330,8 +330,10 @@ Two of those hooks earn their keep in ways that are not obvious:
 
 ## Requirements
 
-* **Host:** Python 3.9+, `numpy`, `pyserial`. The TLS demo additionally uses
-  `cryptography` for its certificate helper; nothing else needs it.
+* **Host:** Python 3.9+, `numpy`, `pyserial` — that is all the instrument
+  needs, and `ethtimer/aes.py` is self-contained so that even the acceptance
+  check adds nothing. Two **demos** need `cryptography`: `oscore` for AES-CCM,
+  and `tls` for its certificate helper. `pip install -e ".[demos]"` adds it.
 * **Firmware:** `arm-none-eabi-gcc` and GNU make. Built and tested with GCC 10.3
   and 13.x. `tools/fetch_sdk.sh` needs `git` and `bash`.
 * **Hardware:** a NUCLEO-F429ZI or NUCLEO-F746ZG (or an H723ZG, once one has

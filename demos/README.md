@@ -29,8 +29,13 @@ any file at all.
 That is deliberate. The instrument has to stay importable with nothing but
 `numpy` and `pyserial` on a machine that has a board attached and no interest in
 SNMP; and an adapter has to be able to depend on whatever it likes without that
-becoming the instrument's dependency. The TLS demo's certificate helper wants
-`cryptography`; the instrument does not, and never will because of it.
+becoming the instrument's dependency. The `oscore` demo needs `cryptography` for
+AES-CCM and the `tls` demo needs it to generate a certificate; the instrument
+does not, and never will because of it.
+
+```bash
+pip install -e ".[demos]"     # adds cryptography, for oscore and tls
+```
 
 ## What every adapter owes the capture
 

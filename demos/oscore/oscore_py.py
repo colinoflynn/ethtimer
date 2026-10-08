@@ -185,14 +185,36 @@ def oscore_option(piv: int, kid: bytes) -> bytes:
     return bytes([flags]) + pv + kid
 
 
+def _aesccm(key: bytes):
+    """AES-CCM from `cryptography`, with a message that names the package.
+
+    THE ONLY THIRD-PARTY DEPENDENCY IN THIS REPOSITORY'S DEMOS, and it is here
+    rather than in the instrument: `ethtimer` itself needs numpy and pyserial to
+    take a measurement, and `ethtimer.aes` is a self-contained AES-128 so that
+    even the acceptance check adds nothing. CCM with a 64-bit tag is more than
+    that file is for, and writing one here would be a second thing to get wrong.
+
+    Imported lazily and reported by name, because `ModuleNotFoundError: No
+    module named 'cryptography'` raised from four frames down reads as a broken
+    adapter rather than a missing install.
+    """
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+    except ImportError as e:                                # pragma: no cover
+        raise ImportError(
+            "the OSCORE demo needs AES-CCM, which comes from the "
+            "`cryptography` package: pip install 'ethtimer[demos]' "
+            "(or pip install cryptography). The instrument itself does not "
+            "need it: %s" % e)
+    return AESCCM(key, tag_length=TAG_LEN)
+
+
 def _ccm_encrypt(key: bytes, n: bytes, pt: bytes, ad: bytes) -> bytes:
-    from cryptography.hazmat.primitives.ciphers.aead import AESCCM
-    return AESCCM(key, tag_length=TAG_LEN).encrypt(n, pt, ad)
+    return _aesccm(key).encrypt(n, pt, ad)
 
 
 def _ccm_decrypt(key: bytes, n: bytes, ct: bytes, ad: bytes) -> bytes:
-    from cryptography.hazmat.primitives.ciphers.aead import AESCCM
-    return AESCCM(key, tag_length=TAG_LEN).decrypt(n, ct, ad)
+    return _aesccm(key).decrypt(n, ct, ad)
 
 
 class Client:

@@ -6,6 +6,9 @@ each turnaround, and keeps one 16-byte block of the protected response.
 Then it checks itself: `E(K, A_1)` must equal `plaintext ^ ciphertext` on every
 pair, under the server's real sender key.
 
+Needs `cryptography` for AES-CCM: `pip install -e ".[demos]"`. The instrument
+does not.
+
 ## What the other end has to be
 
 An OSCORE server (RFC 8613) with:

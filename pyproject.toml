@@ -29,10 +29,17 @@ classifiers = [
 dependencies = ["numpy>=1.20", "pyserial>=3.5"]
 
 [project.optional-dependencies]
-# demos/tls/make_certs.py only. The TLS capture itself uses the standard
-# library's `ssl`.
+# The demos' own dependency, not the instrument's. demos/oscore/oscore_py.py
+# needs AES-CCM for RFC 8613, and demos/tls/make_certs.py generates a
+# certificate; the TLS capture itself uses the standard library's `ssl`.
+#
+# `dev` includes it because tests/test_oscore_py.py exercises the OSCORE client
+# against the RFC's vectors. It was left out once, and CI on a clean runner is
+# what found that -- the tests pass on any machine that happens to have
+# cryptography installed for something else.
+demos = ["cryptography>=3.4"]
 tls = ["cryptography>=3.4"]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "cryptography>=3.4"]
 
 [project.urls]
 Homepage = "https://github.com/colinoflynn/ethtimer"
