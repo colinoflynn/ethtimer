@@ -55,10 +55,15 @@ jobs:
       # yesterday's". The version is printed so that a build whose SIZE moves
       # can be told from a build whose COMPILER moved.
       - name: install arm-none-eabi-gcc
+        # libnewlib-arm-none-eabi IS NOT OPTIONAL. Ubuntu ships the compiler and
+        # the C library separately, so gcc-arm-none-eabi alone gives a toolchain
+        # that cannot find string.h -- and -specs=nano.specs needs newlib-nano,
+        # which is in the same package.
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi
+          sudo apt-get install -y --no-install-recommends               gcc-arm-none-eabi libnewlib-arm-none-eabi
           arm-none-eabi-gcc --version | head -1
+          arm-none-eabi-gcc -print-file-name=nano.specs
 
       # The ST sources are pinned by tag in tools/fetch_sdk.sh, so this is the
       # part that IS reproducible. Cached on the pin file's own hash: change a
